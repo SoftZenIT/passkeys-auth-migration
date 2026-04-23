@@ -1,0 +1,114 @@
+{
+  "skill_name": "passkeys-auth-migration",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have a NestJS app using Prisma with PostgreSQL and JWT auth. I want to add passkey support so users can sign in with their fingerprint instead of a password.",
+      "expected_output": "A backend migration plan covering: @simplewebauthn/server install, Prisma schema addition (passkeys table with credentialId, publicKey, counter, aaguid, passkeyUserId on User), 6 endpoints with correct auth guards, RP config from env vars, Redis challenge storage. Followed by a frontend plan for Vue/React with conditional UI setup.",
+      "assertions": [
+        "Plan is presented before any code is written",
+        "Correct library selected: @simplewebauthn/server for NestJS",
+        "Prisma schema includes credentialId as Bytes @unique",
+        "Prisma schema includes counter as BigInt",
+        "Prisma schema includes aaguid field",
+        "User model gets passkeyUserId field",
+        "6 endpoints listed: register-challenge, register-verify, auth-challenge, auth-verify, list, delete",
+        "register endpoints require authentication guard",
+        "auth endpoints are public",
+        "rpId configured from environment variable",
+        "BigInt/Number conversion mentioned for counter field",
+        "Backward compatibility: existing JWT login preserved"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "my django app uses postgres and argon2 for passwords. can you add passkey login?",
+      "expected_output": "Backend plan using py_webauthn, Django model with aaguid and passkey_user_id migration, 4 view functions (register challenge/verify, auth challenge/verify), session-based challenge storage, plus list/delete views.",
+      "assertions": [
+        "Plan presented before code",
+        "Library: py_webauthn selected for Django",
+        "Django model includes aaguid field",
+        "Django model includes sign_count (BigIntegerField)",
+        "passkey_user_id added to User model",
+        "Session used for challenge storage",
+        "json.loads(options_to_json(options)) pattern used (not raw options_to_json)",
+        "Challenge deleted in both success and failure paths",
+        "Existing argon2/password login preserved"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "We have a Spring Boot app with Spring Security and PostgreSQL. Product wants to add 'Sign in with passkey' to the login page by next sprint.",
+      "expected_output": "Backend plan using java-webauthn-server (Yubico), JPA entity with aaguid column, Spring @RestController with 6 endpoints using @PreAuthorize, plus frontend plan for the login page.",
+      "assertions": [
+        "Plan presented before code",
+        "Library: java-webauthn-server (Yubico) selected",
+        "JPA entity includes aaguid field",
+        "User entity gets passkeyUserId column noted",
+        "Spring Security preserved — not replaced",
+        "6 endpoints defined",
+        "Frontend plan includes autocomplete='username webauthn' on email input",
+        "Conditional UI (useBrowserAutofill) mentioned"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "I only have a Nuxt 3 frontend here. I want to add passkey sign-in. The backend is a NestJS API running separately.",
+      "expected_output": "Skill stops and asks for backend details before generating any plan. Questions cover: backend framework, database, ORM, current auth mechanism, and whether auth routes can be shared.",
+      "assertions": [
+        "No plan or code generated before backend context collected",
+        "User asked for: backend framework",
+        "User asked for: database",
+        "User asked for: ORM",
+        "User asked for: current auth mechanism",
+        "Response explains that backend plan must come before frontend plan"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Laravel 10 app with Sanctum tokens and MySQL. We want passkeys. Also our frontend is SvelteKit in a separate repo.",
+      "expected_output": "Backend plan using web-auth/webauthn-lib with Laravel controller scaffold, Eloquent migration with aaguid + passkey_user_id, Sanctum auth middleware on protected routes, JSON transports (MySQL), plus frontend plan for SvelteKit using Svelte stores.",
+      "assertions": [
+        "Plan presented before code",
+        "Library: web-auth/webauthn-lib for Laravel",
+        "Eloquent migration uses JSON for transports (MySQL does not support arrays)",
+        "Sanctum middleware on register/list/delete endpoints",
+        "passkey_user_id column added to users table migration",
+        "aaguid column in passkeys migration",
+        "Frontend plan uses Svelte store pattern",
+        "SvelteKit +page.svelte example with autocomplete='username webauthn'",
+        "Separate repos acknowledged — frontend plan waits for backend endpoint confirmation"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Add passkeys to our Go API using Gin and our React frontend",
+      "expected_output": "Backend plan using go-webauthn/webauthn with Gin handlers, Go struct with aaguid field, plus React hook pattern for frontend.",
+      "assertions": [
+        "Plan presented before code",
+        "Library: go-webauthn/webauthn selected",
+        "Go struct includes AAGUID field",
+        "React usePasskey hook pattern provided",
+        "Conditional UI with useBrowserAutofill in React",
+        "Cross-device authenticatorAttachment check included"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "I want to understand the security implications of adding passkeys. What are the risks and how do they compare to passwords?",
+      "expected_output": "This should NOT trigger the passkeys-auth-migration skill — it is a general security question, not a migration request. The skill should not activate.",
+      "assertions": [
+        "Skill does not activate for a general information question",
+        "No migration plan is generated"
+      ],
+      "should_trigger": false
+    },
+    {
+      "id": 8,
+      "prompt": "How do I set up OAuth2 with Google in my Next.js app?",
+      "expected_output": "This should NOT trigger the passkeys-auth-migration skill — it is an OAuth/SSO question, not a passkey migration.",
+      "assertions": ["Skill does not activate for OAuth questions"],
+      "should_trigger": false
+    }
+  ]
+}
