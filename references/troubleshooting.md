@@ -84,7 +84,7 @@ dropdown when the user clicks/focuses on the username field.
 | Chrome | 108 | Full support including Android |
 | Edge | 108 | Full support |
 | Safari | 16 (iOS/macOS) | Requires iOS 16 / macOS Ventura |
-| Firefox | 119 | Desktop only; no Android support |
+| Firefox | — | **Not supported** — passkey registration and auth work, but Conditional UI autofill does not appear; ensure your explicit "Sign in with a passkey" button is always visible |
 | Samsung Internet | 21 | Android only |
 
 **Detection before invoking:**
@@ -116,7 +116,7 @@ gets a server error like `"Challenge expired"` or `"Challenge not found"`.
 - Use a 5-minute TTL for registration (user is already logged in, fast flow)
 - Use a 10-minute TTL for authentication (may include cross-device BLE setup)
 - For Redis: `EX 600` (10 minutes)
-- Implement client-side retry: catch the error → fetch a new challenge → retry
+- Implement client-side retry: catch the error -> fetch a new challenge -> retry
   the ceremony automatically (transparent to user)
 
 ```javascript
@@ -124,8 +124,8 @@ gets a server error like `"Challenge expired"` or `"Challenge not found"`.
 async function authenticateWithRetry(maxRetries = 1) {
   for (let i = 0; i <= maxRetries; i++) {
     try {
-      const options = await fetchChallenge(); // fresh challenge each time
-      return await startAuthentication(options);
+      const optionsJSON = await fetchChallenge(); // fresh challenge each time
+      return await startAuthentication({ optionsJSON }); // v10+ API: options wrapped in object
     } catch (err) {
       if (err.name === 'NotAllowedError' || i === maxRetries) throw err;
       // Challenge may have expired — loop for a fresh one
@@ -265,7 +265,7 @@ recreated) but the passkey provider still has the private key.
 // After authentication attempt returns 404 (credential not found):
 if (response.status === 404 && PublicKeyCredential.signalUnknownCredential) {
   await PublicKeyCredential.signalUnknownCredential({
-    rpId: 'example.com',
+    rpId: window.__RP_ID__ ?? location.hostname, // never hardcode — must match server rpID
     credentialId: body.id,  // base64url credential ID from the failed attempt
   });
   // The passkey provider will mark this credential for deletion
@@ -282,7 +282,7 @@ Google PM) and don't know which one to use or why they have so many.
 **UX guidance:**
 - Display AAGUID-derived provider names in passkey cards: "iCloud Keychain",
   "Google Password Manager", "1Password"
-- Show sync status (`backedUp: true` → display "Synced" badge)
+- Show sync status (`backedUp: true` -> display "Synced" badge)
 - Allow users to rename passkeys to meaningful labels: "My iPhone", "Work laptop"
 - Provide a "last used" date on each card
 - Recommend users keep at least 2 passkeys (one synced + one security key or
@@ -294,7 +294,7 @@ Google PM) and don't know which one to use or why they have so many.
 
 When a ceremony fails and the error is unclear:
 
-1. Open browser DevTools → Application tab → check for WebAuthn errors
+1. Open browser DevTools -> Application tab -> check for WebAuthn errors
 2. Check `clientDataJSON` in the response — decode from base64url:
    ```javascript
    JSON.parse(atob(credential.response.clientDataJSON.replace(/-/g,'+').replace(/_/g,'/')))
@@ -341,4 +341,4 @@ then try again."
 2. Specify who acts and when — avoid "We'll try again later"
 3. Blame the system, not the user — "This may be a temporary issue"
 4. Always give at least one fallback path — never leave user stuck
-5. Consistent structure: Title → Brief explanation → Next step → Actions → Support link
+5. Consistent structure: Title -> Brief explanation -> Next step -> Actions -> Support link

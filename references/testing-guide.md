@@ -175,7 +175,7 @@ describe('Passkey registration', () => {
 
 ## Level 3 — E2E Tests with Virtual Authenticator
 
-Chrome's DevTools Protocol (CDP) exposes a virtual authenticator that can
+Chrome DevTools Protocol (CDP) exposes a virtual authenticator that can
 simulate passkey ceremonies without hardware. Works in Playwright and Puppeteer.
 
 ### Playwright — Virtual Authenticator Setup
@@ -346,16 +346,77 @@ module.exports = {
 
 ---
 
+---
+
+## Level 5 — Config Regression Tests
+
+The most dangerous maintenance operation is changing `rpID` — it silently
+invalidates every existing passkey. A credential registered with `rpID=example.com`
+will never authenticate against `rpID=app.example.com`. There is no error on
+registration; the break only appears at login time for existing users.
+
+Add these tests to your CI so config changes are caught before deployment:
+
+```typescript
+describe('RP config regression', () => {
+  it('rpId matches RP_ID env var — catches accidental config drift', () => {
+    // If someone changes RP_ID in .env without updating the service,
+    // or hardcodes a value, this catches the mismatch before deployment.
+    const { rpID } = getRpConfig();
+    expect(rpID).toBe(process.env.RP_ID);
+  });
+
+  it('origin matches APP_ORIGIN env var', () => {
+    const { origin } = getRpConfig();
+    expect(origin).toBe(process.env.APP_ORIGIN);
+  });
+
+  it('rpId contains no protocol, port, or path', () => {
+    const { rpID } = getRpConfig();
+    expect(rpID).not.toMatch(/^https?:\/\//);   // no protocol
+    expect(rpID).not.toMatch(/:\d+/);            // no port
+    expect(rpID).not.toMatch(/\//);              // no path
+  });
+
+  it('existing stored passkey verifies against current rpId', async () => {
+    // Register a passkey with the virtual authenticator, store it,
+    // then immediately attempt authentication. If rpId or origin
+    // changed between registration and auth, this will throw.
+    const { credentialId } = await e2eRegisterPasskey(testUserId);
+    const stored = await passkeyRepo.findByCredentialId(credentialId);
+    expect(stored).not.toBeNull();
+
+    // Attempt authentication with the same config — must succeed
+    await expect(e2eAuthenticatePasskey(credentialId)).resolves.not.toThrow();
+  });
+});
+```
+
+**Run these in CI on every PR that touches `.env`, config files, or the passkey
+service.** Add a comment in your RP config file linking to this test so future
+developers know why the test exists:
+
+```typescript
+// passkey.config.ts
+// WARNING: Changing rpID or origin invalidates ALL existing passkeys for users.
+// See tests/passkey-config.regression.test.ts before modifying these values.
+export const rpConfig = { ... };
+```
+
+---
+
 ## Checklist before going to production
 
 - [ ] Unit tests cover challenge deletion in both success and failure paths
 - [ ] Unit tests cover counter validation (replay rejection)
 - [ ] Integration tests verify ownership checks on DELETE endpoint
 - [ ] Integration tests verify unauthenticated access is rejected on protected endpoints
-- [ ] E2E test covers registration → authentication → passkey card displayed
+- [ ] E2E test covers registration -> authentication -> passkey card displayed
 - [ ] E2E test covers conditional UI appearing on login page
 - [ ] E2E test covers passkey delete flow
 - [ ] CI runs on HTTPS (required for WebAuthn in headful browser tests)
 - [ ] Tests use short challenge TTL (60 seconds) to avoid timing issues
-- [ ] Cross-browser tested manually: Chrome, Safari, Firefox, Edge
+- [ ] Config regression tests verify rpId and origin match env vars
+- [ ] Cross-browser tested manually: Chrome, Safari, Edge — full passkey support
+- [ ] Firefox tested — passkey registration and authentication work; Conditional UI (autofill) is not supported in Firefox as of 2026, so the autofill suggestion will not appear; password fallback must still work
 - [ ] Mobile tested: iOS Safari, Chrome for Android

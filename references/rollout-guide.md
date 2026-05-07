@@ -128,15 +128,15 @@ Source: passkeycentral.org/passkey-roll-out-guides/prevent-phishing/
 - MNO network authentication (SIM-based)
 - TLS client certificates
 
-### Stage 1 → Stage 2 (what this skill delivers)
+### Stage 1 to Stage 2 (what this skill delivers)
 When you complete the migration using this skill, you move from **Legacy Authentication** to **Optional Adoption**. Both auth methods coexist. Users can choose passkeys but are not forced to.
 
-### Stage 2 → Stage 3 (Partial Prevention)
+### Stage 2 -> Stage 3 (Partial Prevention)
 - Require passkeys for high-risk actions: admin panel, payment confirmation, sensitive data access
 - Allow legacy auth for regular sign-in during this transition period
 - RPs that have suffered phishing attacks should prioritize reaching this stage
 
-### Stage 3 → Stage 4 (Full Prevention — advanced)
+### Stage 3 -> Stage 4 (Full Prevention — advanced)
 - Deprecate all phishable methods
 - Require passkey or phishing-resistant recovery (e.g., MNO network auth) for all operations
 - Currently only a few RPs have achieved this due to usability and business challenges
@@ -189,16 +189,16 @@ security.
 ```
 1. User triggers "Forgot password"
 2. Server sends email OTP / magic link
-3. User verifies email → server marks session: recovery_verified: true
+3. User verifies email -> server marks session: recovery_verified: true
 4. ─── At this point show passkey enrollment ───
 5. Passkey creation prompt:
    "You're back in! Want to sign in faster next time?
     Create a passkey — no password needed."
    [Create passkey] [Skip for now]
 6. If user clicks "Create passkey":
-   → Same registration ceremony as Account Settings
-   → Require: session.recovery_verified === true (prevent unauthorized enrollment)
-   → On success: passkey added, session fully established
+   -> Same registration ceremony as Account Settings
+   -> Require: session.recovery_verified === true (prevent unauthorized enrollment)
+   -> On success: passkey added, session fully established
 7. User proceeds to app normally
 ```
 

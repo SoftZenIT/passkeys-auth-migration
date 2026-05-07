@@ -13,15 +13,15 @@ Always split user identity for WebAuthn compliance:
 
 ```
 users table (existing):
-  id               → your existing PK (do NOT use as WebAuthn user.id)
-  email            → PII — do NOT use as WebAuthn user.id
-  passkey_user_id  → NEW: PII-free UUID, used as user.id in WebAuthn options
+  id               -> your existing PK (do NOT use as WebAuthn user.id)
+  email            -> PII — do NOT use as WebAuthn user.id
+  passkey_user_id  -> NEW: PII-free UUID, used as user.id in WebAuthn options
                      Must be stable (never changes), unique, no PII
                      W3C spec requires user.id to be free of PII
 
 passkeys table (new — full schema):
   id               UUID PK
-  user_id          FK → users.id  (or users.passkey_user_id)  ON DELETE CASCADE
+  user_id          FK -> users.id  (or users.passkey_user_id)  ON DELETE CASCADE
   credential_id    BYTES  UNIQUE — WebAuthn raw credential ID
   public_key       BYTES  — COSE-encoded public key
   counter          BIGINT — signature counter (replay attack protection)

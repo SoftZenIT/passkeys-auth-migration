@@ -73,8 +73,8 @@ Server must verify these (your library handles it — verify it's configured cor
 ```typescript
 // pubKeyCredParams: always include both ECDSA P-256 and RSA PKCS#1
 // (libraries set this automatically — covers all platforms)
-// ES256 = -7 (ECDSA with P-256) ← preferred, used by Apple/Google
-// RS256 = -257 (RSA PKCS#1) ← needed for Windows Hello and some YubiKeys
+// ES256 = -7 (ECDSA with P-256) -- preferred, used by Apple/Google
+// RS256 = -257 (RSA PKCS#1) -- needed for Windows Hello and some YubiKeys
 ```
 
 ---
@@ -100,7 +100,7 @@ const verification = await verifyAuthenticationResponse({
   credential: {
     id: passkey.credentialId,
     publicKey: passkey.publicKey,
-    counter: Number(passkey.counter),   // ← must be the STORED counter, not 0
+    counter: Number(passkey.counter),   // -- must be the STORED counter, not 0
     transports: passkey.transports,
   },
 });
@@ -146,18 +146,51 @@ if (userHandle) {
 - [ ] AAGUID stored for provider identification (display name in UI)
 - [ ] `backed_up` flag stored (useful for future password deprecation eligibility)
 
-### F.2 — AAGUID → Provider Name Mapping
+### F.2 — AAGUID -> Provider Name Mapping
 
 AAGUID is a UUID that identifies the passkey provider. Use it to display
 meaningful labels like "iCloud Keychain" or "Google Password Manager" in
 Account Settings passkey cards.
 
-**Option A — FIDO Metadata Service (authoritative)**
-Fetch from the FIDO Alliance MDS (updated regularly):
+**Option A — FIDO Metadata Service (authoritative, live)**
+Fetch from the FIDO Alliance MDS at app startup and cache. The endpoint
+returns a JWS (JSON Web Signature) — the payload is the base64url-encoded
+second segment and contains the full AAGUID-to-description mapping:
+
+```typescript
+// aaguid-mds.ts — call once at startup, cache result in module scope
+let mdsCache: Record<string, string> | null = null;
+
+export async function loadMdsNames(): Promise<Record<string, string>> {
+  if (mdsCache) return mdsCache;
+  const res = await fetch('https://mds3.fidoalliance.org/');
+  const jwt = await res.text();
+  // MDS is a JWS: header.payload.signature — only payload needed for names
+  const payload = jwt.split('.')[1];
+  const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
+  const map: Record<string, string> = {};
+  for (const entry of decoded.entries ?? []) {
+    if (entry.aaguid && entry.metadataStatement?.description) {
+      map[entry.aaguid.toLowerCase()] = entry.metadataStatement.description;
+    }
+  }
+  mdsCache = map;
+  return map;
+}
+
+export async function getProviderNameFromMds(aaguid: string): Promise<string> {
+  const names = await loadMdsNames();
+  return names[aaguid.toLowerCase()] ?? 'Passkey';
+}
 ```
-https://mds3.fidoalliance.org/
-```
-Parse the JWT blob to get `metadataStatement.description` for each AAGUID.
+
+> This skips signature verification of the MDS JWT, which is acceptable for
+> display-name enrichment. For regulated environments that require verified
+> attestation metadata, implement full JWS signature verification against
+> the FIDO Alliance root certificate before trusting any MDS entry.
+
+> Cache `mdsCache` with a 24-hour TTL in production — the MDS updates
+> weekly but re-fetching on every request adds ~200ms latency to registration.
 
 **Option B — Common AAGUID lookup table (covers 90% of users)**
 ```typescript
@@ -168,8 +201,13 @@ const AAGUID_NAMES: Record<string, string> = {
   '08987058-cadc-4b81-b6e1-30de50dcbe96': 'Windows Hello',
   'fbefdf68-fe86-0106-213e-4d5fa24cbe2e': 'Dashlane',
   '50726f74-6f6e-5061-7373-50726f746f6e': 'Proton Pass',
-  '1password': '1Password',   // 1Password uses several AAGUIDs per version
-  // Full list: https://github.com/nicholasess/passkey-providers
+  // 1Password uses multiple AAGUIDs across versions and platforms.
+  // Do NOT use a string key like '1password' — it will never match.
+  // Use the FIDO MDS for a complete, up-to-date list (see Option A above).
+  // Common 1Password AAGUIDs (may vary by version):
+  'bada5566-a7aa-401f-bd96-45619a55120d': '1Password',
+  'a4e9fc6d-4cbe-4758-b8ba-37598bb5bbaa': '1Password',
+  // Full community list: https://github.com/nicholasess/passkey-providers
 };
 
 function getProviderName(aaguid: string): string {
@@ -182,6 +220,23 @@ never show the raw UUID to users.
 
 **Important:** Store AAGUID in the DB even if you don't use it now. Provider
 databases improve over time and you can retroactively enrich labels.
+
+**Keeping the AAGUID map current:**
+The hardcoded table above covers common providers but will drift as new
+providers appear and existing ones change AAGUIDs across versions.
+
+- **Quarterly review**: compare your table against the community list at
+  `https://github.com/nicholasess/passkey-providers` and the FIDO MDS (Option A).
+- **Recommended alternative**: pull names from FIDO MDS at app startup (Option A)
+  rather than shipping a hardcoded map — avoids stale data entirely and requires
+  no code changes when new providers are added.
+- **Backfilling existing records**: after updating the map, re-derive `name` from
+  the stored `aaguid` for rows where the name is stale or was never resolved:
+  ```sql
+  -- Run once after updating your AAGUID map
+  UPDATE passkeys SET name = NULL WHERE name = 'Passkey' AND aaguid IS NOT NULL;
+  -- Then your app code will re-resolve names on next read, or run a migration script
+  ```
 
 ---
 
@@ -197,7 +252,7 @@ databases improve over time and you can retroactively enrich labels.
 | `DELETE /auth/passkey/:id` | Auth required | Verify ownership before delete |
 
 - [ ] Rate limiting on **all** passkey endpoints (especially challenge generation — prevent DDoS)
-- [ ] CSRF protection on state-changing endpoints (register, delete)
+- [ ] CSRF protection on state-changing endpoints (register, delete) — **required for session-cookie auth only**; Bearer-token (JWT) APIs are not vulnerable to CSRF because browsers do not auto-attach Authorization headers
 - [ ] Validate `Content-Type: application/json` on all passkey routes
 
 ---
@@ -280,10 +335,14 @@ if (requireDeviceBound && registrationInfo.credentialDeviceType !== 'singleDevic
 Keep passkey providers in sync with your server's credential state:
 
 ```typescript
+// rpId must come from your env var — never hardcode it here.
+// Using the wrong rpId causes every cleanup call to silently fail.
+const rpId = process.env.RP_ID!;
+
 // After 404 (credential not found during authentication):
 if (response.status === 404 && PublicKeyCredential.signalUnknownCredential) {
   await PublicKeyCredential.signalUnknownCredential({
-    rpId: 'example.com',
+    rpId,
     credentialId: body.id,  // base64url credential ID from the request
   });
   // Provider will clean up the orphaned passkey
@@ -292,9 +351,13 @@ if (response.status === 404 && PublicKeyCredential.signalUnknownCredential) {
 // After successful registration, signal current credential set:
 if (PublicKeyCredential.signalAllAcceptedCredentials) {
   const allCredentials = await getCredentialsForUser(userId);
+  // userId must be base64url-encoded to match the userHandle the authenticator stored.
+  // If passkeyUserId is stored as a UTF-8 string in your DB, encode it here:
+  const userIdBase64url = btoa(user.passkeyUserId)
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
   await PublicKeyCredential.signalAllAcceptedCredentials({
-    rpId: 'example.com',
-    userId: user.passkeyUserId,  // base64url-encoded user handle
+    rpId,
+    userId: userIdBase64url,
     allAcceptedCredentialIds: allCredentials.map(c => c.credentialId),
   });
 }
@@ -312,11 +375,11 @@ The `uv` flag in authenticatorData indicates the authenticator performed
 user verification (biometric or PIN). However, several extension-based
 providers set this flag incorrectly:
 
-- 1Password Extension → sets UV=true without verifying
-- Bitwarden Extension → sets UV=true without verifying
-- KeePassXC → sets UV=true without verifying
-- Proton Pass Extension → sets UV=true without verifying
-- Okta Personal Extension → sets UV=true without verifying
+- 1Password Extension -> sets UV=true without verifying
+- Bitwarden Extension -> sets UV=true without verifying
+- KeePassXC -> sets UV=true without verifying
+- Proton Pass Extension -> sets UV=true without verifying
+- Okta Personal Extension -> sets UV=true without verifying
 
 **For most consumer apps:** This is acceptable. Use `userVerification: 'preferred'`
 and don't rely on the UV flag for security decisions.
@@ -339,4 +402,4 @@ Supplement with AAGUID-based attestation or additional session signals.
 | Not deleting challenge on failed verification | Allows retry attacks with the same challenge |
 | Logging raw credential responses | Exposes credential IDs and potential attack surface |
 | Using `rpID` as the full URL | Breaks WebAuthn for all users |
-| Allowing unlimited passkeys per user (no cap) | Potential DoS via storage exhaustion |
+| Allowing unlimited passkeys per user (no cap) | Potential DoS via storage exhaustion — enforce a per-user cap (recommended: 10–25) by checking count before `generateRegistrationOptions` and returning HTTP 400 if exceeded |

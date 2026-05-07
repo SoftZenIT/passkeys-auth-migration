@@ -4,7 +4,7 @@
 
 The frontend is responsible for:
 1. Calling the browser's WebAuthn API (`navigator.credentials.create` and `navigator.credentials.get`)
-2. Communicating with the backend (challenge → device → verify)
+2. Communicating with the backend (challenge -> device -> verify)
 3. Providing FIDO-compliant UX (see ux-guidelines.md)
 4. Handling errors gracefully and offering fallback
 
@@ -27,16 +27,27 @@ export const isPlatformAuthAvailable = async (): Promise<boolean> => {
 };
 
 // Is Conditional UI (autofill passkeys) supported? — needed for sign-in page
+// Two APIs exist; prefer getClientCapabilities() in newer browsers.
 export const isConditionalUIAvailable = async (): Promise<boolean> => {
   if (!isWebAuthnSupported()) return false;
+  // Modern API (Chrome 128+, Safari 18+): getClientCapabilities()
+  if (typeof PublicKeyCredential.getClientCapabilities === 'function') {
+    try {
+      const caps = await PublicKeyCredential.getClientCapabilities();
+      return caps.conditionalGet === true;
+    } catch {
+      // fall through to legacy API
+    }
+  }
+  // Legacy API (Chrome 108+, Safari 16+): isConditionalMediationAvailable()
   return typeof PublicKeyCredential.isConditionalMediationAvailable === 'function' &&
     PublicKeyCredential.isConditionalMediationAvailable();
 };
 ```
 
 Rules:
-- `isPlatformAuthAvailable()` → false: hide "Create passkey" UI silently (no error)
-- `isConditionalUIAvailable()` → false: skip conditional init, show explicit button only
+- `isPlatformAuthAvailable()` -> false: hide "Create passkey" UI silently (no error)
+- `isConditionalUIAvailable()` -> false: skip conditional init, show explicit button only
 
 ---
 
@@ -99,7 +110,7 @@ async function initConditionalAuth() {
       showCrossDeviceUpgradePrompt(); // "Set up a passkey on this device?"
     }
   } catch (err) {
-    // User dismissed autofill or selected password → do NOT show error
+    // User dismissed autofill or selected password -> do NOT show error
     // This is expected, fall through to normal form flow
     console.info('Conditional UI not resolved:', err.name);
   }
@@ -107,9 +118,9 @@ async function initConditionalAuth() {
 ```
 
 ### Key behaviour
-- User focuses on username input → passkeys appear in autofill dropdown alongside saved passwords
-- User selects passkey → device biometric prompt → automatic sign-in
-- User selects password → conditional promise never resolves → password form works normally
+- User focuses on username input -> passkeys appear in autofill dropdown alongside saved passwords
+- User selects passkey -> device biometric prompt -> automatic sign-in
+- User selects password -> conditional promise never resolves -> password form works normally
 - **Never interrupt the password form flow** — conditional UI is completely silent
 
 ---
@@ -125,7 +136,7 @@ const authenticateWithPasskey = async (): Promise<void> => {
     const options = await optionsResp.json();
     const { startAuthentication } = await import('@simplewebauthn/browser');
 
-    // No useBrowserAutofill → shows modal passkey picker immediately
+    // No useBrowserAutofill -> shows modal passkey picker immediately
     const authResp = await startAuthentication({ optionsJSON: options });
 
     const verifyResp = await fetch('/auth/passkey/authenticate/verify', {

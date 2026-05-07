@@ -14,7 +14,7 @@ Sources:
 ## The 10 UX Principles (FIDO Alliance)
 
 ### 1. Prompt at account-related moments
-Best moments to prompt passkey creation (highest → lowest success):
+Best moments to prompt passkey creation (highest -> lowest success):
 - ✅ Account creation (highest conversion)
 - ✅ Account recovery / forgot password flow
 - ✅ Account Settings (always include — required pattern)
@@ -35,7 +35,7 @@ Connect passkeys to things users already know:
 **After OS dialog:**
 - Success: "Your passkey was created! Next time, just use your fingerprint to sign in."
 - Cancelled: "Passkey creation was cancelled. You can create one anytime in Account Settings."
-- Never go straight button → OS dialog without a prep screen
+- Never go straight button -> OS dialog without a prep screen
 
 ### 4. Allow freedom and choice
 - Always offer an alternative (password, magic link, etc.)

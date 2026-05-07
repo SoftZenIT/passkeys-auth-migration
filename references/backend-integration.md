@@ -6,32 +6,34 @@ Google's official guidance recommends splitting user identity to keep passkeys P
 
 ```
 Users table:
-  user_id          UUID  PK   ← main user identity (may become de-facto PII)
-  username         TEXT       ← editable, may change
-  passkey_user_id  UUID  UQ   ← PII-free, stable, used as user.id in WebAuthn
+  user_id          UUID  PK   -- main user identity (may become de-facto PII)
+  username         TEXT       -- editable, may change
+  passkey_user_id  UUID  UQ   -- PII-free, stable, used as user.id in WebAuthn
                                  Never set as PK (PKs tend to leak as PII)
 
 Passkeys table:
   id               UUID  PK
-  passkey_user_id  UUID  FK → users.passkey_user_id   ON DELETE CASCADE
-  credential_id    BYTES UQ  ← use as PK in credential lookups
+  passkey_user_id  UUID  FK -- users.passkey_user_id   ON DELETE CASCADE
+  credential_id    BYTES UQ  -- use as PK in credential lookups
   public_key       BYTES
-  counter          BIGINT    ← CRITICAL: replay attack protection
-  device_type      VARCHAR   ← "singleDevice" | "multiDevice"
-  backed_up        BOOL      ← synced across devices? (BE flag)
-  transports       ARRAY     ← ["internal","hybrid","usb","nfc","ble"]
-  aaguid           VARCHAR   ← passkey provider ID (Google PM, iCloud, etc.)
-  name             VARCHAR   ← display name, can be derived from aaguid
+  counter          BIGINT    -- CRITICAL: replay attack protection
+  device_type      VARCHAR   -- "singleDevice" | "multiDevice"
+  backed_up        BOOL      -- synced across devices? (BE flag)
+  transports       ARRAY     -- ["internal","hybrid","usb","nfc","ble"]
+  aaguid           VARCHAR   -- passkey provider ID (Google PM, iCloud, etc.)
+  name             VARCHAR   -- display name, can be derived from aaguid
   created_at       TIMESTAMPTZ
   last_used_at     TIMESTAMPTZ
 ```
 
 **Why `passkey_user_id` separate from `user_id`?**
+
 - `user.id` in WebAuthn must be free of PII (per W3C spec)
 - The authenticator returns it as `userHandle` in auth responses
 - Use it to look up the user during discoverable credential auth (no username provided)
 
 **Why store `aaguid`?**
+
 - Identifies the passkey provider: Google Password Manager, iCloud Keychain, 1Password, Dashlane…
 - Use the [FIDO MDS AAGUID list](https://mds3.fidoalliance.org/) to display the provider name in Account Settings UI
 - Gives users meaningful passkey card labels ("Google Password Manager · iPhone 14")
@@ -41,6 +43,7 @@ Passkeys table:
 ## Core WebAuthn Concepts for the Backend
 
 The backend (Relying Party server) is responsible for:
+
 1. Generating challenges (random, unpredictable, single-use)
 2. Verifying registration responses (storing credential public key)
 3. Verifying authentication responses (validating signature with stored public key)
@@ -49,26 +52,31 @@ The backend (Relying Party server) is responsible for:
 ### Two ceremonies
 
 **Registration (create passkey)**
-1. Client calls `/auth/passkey/register/challenge` → server returns challenge + options
-2. Client calls `navigator.credentials.create()` → device creates key pair, returns credential
-3. Client calls `/auth/passkey/register/verify` → server verifies & stores public key
+
+1. Client calls `/auth/passkey/register/challenge` -> server returns challenge + options
+2. Client calls `navigator.credentials.create()` -> device creates key pair, returns credential
+3. Client calls `/auth/passkey/register/verify` -> server verifies & stores public key
 
 **Authentication (sign in with passkey)**
-1. Client calls `/auth/passkey/authenticate/challenge` → server returns challenge + allowed credentials
-2. Client calls `navigator.credentials.get()` → device signs challenge with private key
-3. Client calls `/auth/passkey/authenticate/verify` → server verifies signature → issues session/token
+
+1. Client calls `/auth/passkey/authenticate/challenge` -> server returns challenge + allowed credentials
+2. Client calls `navigator.credentials.get()` -> device signs challenge with private key
+3. Client calls `/auth/passkey/authenticate/verify` -> server verifies signature -> issues session/token
 
 ---
 
 ## NestJS + Prisma + PostgreSQL (Full Example)
 
 ### Install
+
 ```bash
-npm install @simplewebauthn/server
+npm install @simplewebauthn/server@^11   # v11+ required — verifyAuthenticationResponse API changed in v11
 # @simplewebauthn/browser is for the frontend — install it there, not here
+# npm install @simplewebauthn/browser@^11
 ```
 
 ### Prisma Schema (additive — do not touch existing User model columns)
+
 ```prisma
 model Passkey {
   id             String   @id @default(cuid())
@@ -94,6 +102,7 @@ model Passkey {
 ```
 
 ### NestJS Module Structure
+
 ```
 auth/
   passkey/
@@ -109,15 +118,16 @@ auth/
 ```
 
 ### RP Configuration (environment-aware)
+
 ```typescript
 // passkey.config.ts
 export const rpConfig = {
-  rpName: process.env.APP_NAME ?? 'My App',
-  rpID: process.env.RP_ID ?? 'localhost',            // domain only, no port, no protocol
-  origin: process.env.APP_ORIGIN ?? 'http://localhost:3000',  // full origin
+  rpName: process.env.APP_NAME ?? "My App",
+  rpID: process.env.RP_ID ?? "localhost", // domain only, no port, no protocol
+  origin: process.env.APP_ORIGIN ?? "http://localhost:3000", // full origin
   expectedOrigins: process.env.APP_ORIGIN
     ? [process.env.APP_ORIGIN]
-    : ['http://localhost:3000'],
+    : ["http://localhost:3000"],
 };
 ```
 
@@ -127,123 +137,174 @@ export const rpConfig = {
 > Laravel, Go), see `assets/env-template.md`. It includes a copy-paste `.env`
 > template and a common misconfiguration troubleshooting table.
 
-### Challenge Storage
-Challenges must be stored temporarily (server-side, not client-side):
-- **Option A**: Redis with 5-minute TTL (preferred for distributed systems)
-- **Option B**: In-memory map (dev only, not suitable for multi-instance)
-- **Option C**: Session store (express-session, NestJS session)
+### Challenge Storage — Decision Tree
+
+| Deployment                                  | Use                    | Reason                                                                                                                       |
+| ------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Multiple servers / containers               | **Redis** (required)   | In-memory and sessions are node-local — a challenge stored on server A will not be found on server B, silently breaking auth |
+| Single server + sessions already configured | **Session store**      | No new infrastructure; sessions already handle TTL                                                                           |
+| Single server + stateless JWT (no sessions) | **DB with TTL column** | Add `challenge` + `challenge_expires_at` columns to a temp table; clean up with a cron job or DB TTL extension               |
+| Development / single process                | In-memory map          | Fast setup only — never use in production; fails on process restart                                                          |
+
+> ⚠️ The most silent failure in WebAuthn is using in-memory storage with more
+> than one process or container. The challenge is stored on instance A; the
+> verify request hits instance B; the challenge is not found; authentication
+> always fails. No error message points here.
 
 ```typescript
-// Using Redis (recommended)
-await redis.set(`passkey:challenge:${userId}`, challenge, 'EX', 300);
+// Using Redis (recommended for distributed deployments)
+await redis.set(`passkey:challenge:${userId}`, challenge, "EX", 300);
 const storedChallenge = await redis.get(`passkey:challenge:${userId}`);
 await redis.del(`passkey:challenge:${userId}`); // delete after use!
 ```
 
 ### Controller Endpoints
+
 ```typescript
-@Controller('auth/passkey')
+@Controller("auth/passkey")
 export class PasskeyController {
-  @Post('register/challenge')
-  @UseGuards(JwtAuthGuard)  // user must be logged in to register a passkey
+  @Post("register/challenge")
+  @UseGuards(JwtAuthGuard) // user must be logged in to register a passkey
   async getRegisterChallenge(@Request() req) {}
 
-  @Post('register/verify')
+  @Post("register/verify")
   @UseGuards(JwtAuthGuard)
   async verifyRegistration(@Request() req, @Body() body) {}
 
-  @Post('authenticate/challenge')
+  @Post("authenticate/challenge")
   async getAuthChallenge(@Body() body: { username?: string }) {}
 
-  @Post('authenticate/verify')
+  @Post("authenticate/verify")
   async verifyAuthentication(@Body() body) {}
 
-  @Get('list')
+  @Get("list")
   @UseGuards(JwtAuthGuard)
   async listPasskeys(@Request() req) {}
 
-  @Delete(':credentialId')
+  @Delete(":credentialId")
   @UseGuards(JwtAuthGuard)
-  async deletePasskey(@Request() req, @Param('credentialId') credentialId: string) {}
+  async deletePasskey(
+    @Request() req,
+    @Param("credentialId") credentialId: string,
+  ) {}
 }
 ```
 
 ### Registration Service Logic
+
 ```typescript
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
-} from '@simplewebauthn/server';
-import { isoBase64URL } from '@simplewebauthn/server/helpers';
+} from "@simplewebauthn/server";
 
 // 1. Generate challenge
-const existingPasskeys = await this.prisma.passkey.findMany({ where: { userId } });
+const existingPasskeys = await this.prisma.passkey.findMany({
+  where: { userId },
+});
+
+// Guard: enforce a per-user passkey cap to prevent storage exhaustion (DoS)
+if (existingPasskeys.length >= 25) {
+  throw new BadRequestException("Maximum number of passkeys reached");
+}
+
 const options = await generateRegistrationOptions({
   rpName: rpConfig.rpName,
   rpID: rpConfig.rpID,
-  // user.id must be PII-free: use passkeyUserId (stable UUID, not email or username)
-  userID: Buffer.from(user.passkeyUserId),  
-  userName: user.email,                       // shown in credential selector
+  // user.id must be PII-free: use passkeyUserId (stable UUID, not email or username).
+  // passkeyUserId is nullable if the user was created before this migration — generate
+  // it now if missing rather than crashing with a confusing Buffer error.
+  userID: Buffer.from(user.passkeyUserId ?? crypto.randomUUID()),
+  userName: user.email, // shown in credential selector
   userDisplayName: user.name ?? user.email,
-  attestationType: 'none',  // 'none' is fine for most consumer apps
-  excludeCredentials: existingPasskeys.map(pk => ({
+  attestationType: "none", // 'none' is fine for most consumer apps
+  excludeCredentials: existingPasskeys.map((pk) => ({
     id: pk.credentialId,
     transports: pk.transports as AuthenticatorTransport[],
   })),
   authenticatorSelection: {
-    residentKey: 'preferred',       // enables passkey (discoverable credential)
-    userVerification: 'preferred',  // biometric or PIN
+    residentKey: "preferred", // enables passkey (discoverable credential)
+    userVerification: "preferred", // biometric or PIN
   },
 });
 await this.storeChallenge(userId, options.challenge);
 return options;
 
 // 2. Verify registration
-const verification = await verifyRegistrationResponse({
-  response: body,
-  expectedChallenge: await this.getChallenge(userId),
-  expectedOrigin: rpConfig.expectedOrigins,
-  expectedRPID: rpConfig.rpID,
-  requireUserVerification: false, // true for high-security apps
-});
-if (!verification.verified) throw new UnauthorizedException('Registration failed');
+// Use finally to guarantee challenge deletion on both success and failure.
+// If verifyRegistrationResponse throws (wrong origin, bad challenge, etc.)
+// without this pattern the challenge is never deleted, enabling retry attacks.
+try {
+  const verification = await verifyRegistrationResponse({
+    response: body,
+    expectedChallenge: await this.getChallenge(userId),
+    expectedOrigin: rpConfig.expectedOrigins,
+    expectedRPID: rpConfig.rpID,
+    requireUserVerification: false, // true for high-security apps
+  });
+  if (!verification.verified)
+    throw new UnauthorizedException("Registration failed");
 
-const { credential, aaguid, credentialDeviceType, credentialBackedUp } = verification.registrationInfo!;
+  const { credential, aaguid, credentialDeviceType, credentialBackedUp } =
+    verification.registrationInfo!;
 
-// Derive name from AAGUID (optional — maintain a local AAGUID→name map or use fido-mds)
-const providerName = this.getProviderName(aaguid) ?? body.response.transports?.[0] ?? 'Passkey';
+  // Derive name from AAGUID (optional — maintain a local AAGUID->name map or use fido-mds)
+  const providerName =
+    this.getProviderName(aaguid) ?? body.response.transports?.[0] ?? "Passkey";
 
-await this.prisma.passkey.create({
-  data: {
-    userId,
-    credentialId: Buffer.from(credential.id),
-    publicKey: Buffer.from(credential.publicKey),
-    counter: BigInt(credential.counter),  // Number → BigInt for Prisma
-    deviceType: credentialDeviceType,
-    backedUp: credentialBackedUp,
-    transports: body.response.transports ?? [],
-    aaguid: aaguid ?? null,
-    name: providerName,
-  }
-});
-// Always delete challenge after use (success or failure)
-await this.deleteChallenge(userId);
+  await this.prisma.passkey.create({
+    data: {
+      userId,
+      credentialId: Buffer.from(credential.id),
+      publicKey: Buffer.from(credential.publicKey),
+      counter: BigInt(credential.counter), // Number -> BigInt for Prisma
+      deviceType: credentialDeviceType,
+      backedUp: credentialBackedUp,
+      transports: body.response.transports ?? [],
+      aaguid: aaguid ?? null,
+      name: providerName,
+    },
+  });
+} finally {
+  // Always delete — whether verification succeeded, failed, or threw
+  await this.deleteChallenge(userId);
+}
 ```
 
+> **Attestation choice — deliberate default:**
+> `attestationType: 'none'` is the correct default for consumer apps.
+> The authenticator does not include a certificate chain and the server skips
+> device provenance verification entirely. This is what passkeys.dev recommends:
+> lower user friction, no MDS verification logic, no brittle certificate lookups.
+>
+> **When to change this:**
+>
+> - `'direct'` — the authenticator provides a full attestation statement.
+>   Your server must then verify it against the FIDO MDS
+>   (`https://mds3.fidoalliance.org/`). Use for regulated environments
+>   (healthcare, financial services, enterprise hardware security requirements).
+> - `'indirect'` — the authenticator provides an anonymized statement.
+>   Intermediate privacy-preserving attestation; rarely needed.
+>
+> Changing from `'none'` to `'direct'` requires additional server-side
+> attestation verification logic beyond what is shown in this reference.
+> Existing passkeys registered with `'none'` are unaffected — attestation
+> type is only checked at registration time, not authentication time.
+
 ### Authentication Service Logic
+
 ```typescript
 import {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
-} from '@simplewebauthn/server';
-import { isoBase64URL } from '@simplewebauthn/server/helpers';
+} from "@simplewebauthn/server";
 
-// 1. Generate challenge (discoverable — allowCredentials empty → passkey picker shown)
+// 1. Generate challenge (discoverable — allowCredentials empty -> passkey picker shown)
 const options = await generateAuthenticationOptions({
   rpID: rpConfig.rpID,
-  userVerification: 'preferred',
-  allowCredentials: [],  // empty = discoverable credential flow (passkey selector)
-  timeout: 300000,       // 5 minutes recommended (increase to 10min for hybrid/cross-device)
+  userVerification: "preferred",
+  allowCredentials: [], // empty = discoverable credential flow (passkey selector)
+  timeout: 300000, // 5 minutes recommended (increase to 10min for hybrid/cross-device)
 });
 // Store challenge against session ID (user not yet known)
 await this.storeChallenge(sessionId, options.challenge);
@@ -253,7 +314,7 @@ return options;
 // For discoverable credentials, identify user via credential ID or userHandle:
 
 // Option A: Find via credential ID (most reliable)
-const credentialId = Buffer.from(body.rawId, 'base64url');
+const credentialId = Buffer.from(body.rawId, "base64url");
 const passkey = await this.prisma.passkey.findUnique({
   where: { credentialId },
   include: { user: true },
@@ -263,37 +324,41 @@ const passkey = await this.prisma.passkey.findUnique({
 // const userHandle = body.response.userHandle;
 // const user = await this.prisma.user.findUnique({ where: { passkeyUserId: userHandle } });
 
-if (!passkey) throw new UnauthorizedException('Passkey not found');
+if (!passkey) throw new UnauthorizedException("Passkey not found");
 
-const verification = await verifyAuthenticationResponse({
-  response: body,
-  expectedChallenge: await this.getChallenge(sessionId),
-  expectedOrigin: rpConfig.expectedOrigins,
-  expectedRPID: rpConfig.rpID,
-  credential: {
-    id: passkey.credentialId,
-    publicKey: passkey.publicKey,
-    counter: Number(passkey.counter),  // BigInt → Number (SimpleWebAuthn expects Number)
-    transports: passkey.transports as AuthenticatorTransport[],
-  },
-  requireUserVerification: false,  // true for high-security use cases
-});
-if (!verification.verified) throw new UnauthorizedException('Authentication failed');
+// Use finally to guarantee challenge deletion on both success and failure.
+try {
+  const verification = await verifyAuthenticationResponse({
+    response: body,
+    expectedChallenge: await this.getChallenge(sessionId),
+    expectedOrigin: rpConfig.expectedOrigins,
+    expectedRPID: rpConfig.rpID,
+    credential: {
+      id: passkey.credentialId,
+      publicKey: passkey.publicKey,
+      counter: Number(passkey.counter), // BigInt -> Number (SimpleWebAuthn expects Number)
+      transports: passkey.transports as AuthenticatorTransport[],
+    },
+    requireUserVerification: false, // true for high-security use cases
+  });
+  if (!verification.verified)
+    throw new UnauthorizedException("Authentication failed");
 
-// CRITICAL: Update counter immediately (prevents replay attacks)
-await this.prisma.passkey.update({
-  where: { id: passkey.id },
-  data: {
-    counter: BigInt(verification.authenticationInfo.newCounter),  // Number → BigInt for Prisma
-    lastUsedAt: new Date(),
-  },
-});
+  // CRITICAL: Update counter immediately (prevents replay attacks)
+  await this.prisma.passkey.update({
+    where: { id: passkey.id },
+    data: {
+      counter: BigInt(verification.authenticationInfo.newCounter), // Number -> BigInt for Prisma
+      lastUsedAt: new Date(),
+    },
+  });
 
-// CRITICAL: Delete challenge after use regardless of outcome
-await this.deleteChallenge(sessionId);
-
-// Issue JWT / session for passkey.user
-return this.authService.generateToken(passkey.user);
+  // Issue JWT / session for passkey.user
+  return this.authService.generateToken(passkey.user);
+} finally {
+  // Always delete — whether verification succeeded, failed, or threw
+  await this.deleteChallenge(sessionId);
+}
 ```
 
 ---
@@ -301,11 +366,13 @@ return this.authService.generateToken(passkey.user);
 ## Django + py_webauthn
 
 ### Install
+
 ```bash
-pip install webauthn
+pip install "webauthn>=2.0"   # v2+ required — v1 used a class-based API
 ```
 
 ### DB Model (additive)
+
 ```python
 from django.db import models
 import uuid
@@ -331,6 +398,7 @@ class Passkey(models.Model):
 ```
 
 ### Registration View
+
 ```python
 import json
 from django.http import JsonResponse
@@ -394,6 +462,7 @@ def passkey_register_verify(request):
 ```
 
 ### Authentication Views
+
 ```python
 from base64 import urlsafe_b64decode
 from django.contrib.auth import login
@@ -416,9 +485,12 @@ def passkey_auth_challenge(request):
 
 def passkey_auth_verify(request):
     body = json.loads(request.body)
+    # Pop challenge before any early return so it is always consumed — prevents replay.
+    expected_challenge = request.session.pop('passkey_auth_challenge', None)
+    if expected_challenge is None:
+        return JsonResponse({'error': 'Session expired or challenge not found'}, status=400)
     credential_id = _base64url_decode(body['rawId'])
     passkey = Passkey.objects.select_related('user').get(credential_id=credential_id)
-    expected_challenge = request.session.pop('passkey_auth_challenge', None)
     verification = verify_authentication_response(
         credential=body,
         expected_challenge=expected_challenge,
@@ -442,6 +514,7 @@ def passkey_auth_verify(request):
 ## Spring Boot + java-webauthn-server (Full Example)
 
 ### Maven dependency
+
 ```xml
 <dependency>
   <groupId>com.yubico</groupId>
@@ -451,6 +524,7 @@ def passkey_auth_verify(request):
 ```
 
 ### JPA Entity (additive)
+
 ```java
 // passkeys/PasskeyCredential.java
 @Entity
@@ -489,6 +563,7 @@ public class PasskeyCredential {
 ```
 
 ### RP Configuration (application.yml)
+
 ```yaml
 passkey:
   rp-id: ${RP_ID:localhost}
@@ -497,6 +572,7 @@ passkey:
 ```
 
 ### RelyingParty Bean (PasskeyConfig.java)
+
 ```java
 @Configuration
 public class PasskeyConfig {
@@ -521,7 +597,7 @@ public class PasskeyConfig {
             .identity(rpIdentity)
             .credentialRepository(credentialRepository)
             .origins(Set.of(origin))
-            .allowOriginPort(false)       // ← never allow ports in rpID
+            .allowOriginPort(false)       // -- never allow ports in rpID
             .allowOriginSubdomain(false)
             .build();
     }
@@ -529,6 +605,7 @@ public class PasskeyConfig {
 ```
 
 ### CredentialRepository Implementation
+
 ```java
 @Service
 @RequiredArgsConstructor
@@ -565,11 +642,10 @@ public class PasskeyCredentialRepository implements CredentialRepository {
     public Optional<RegisteredCredential> lookup(ByteArray credentialId, ByteArray userHandle) {
         return passkeyRepository.findByCredentialId(credentialId.getBytes())
             .map(pk -> RegisteredCredential.builder()
-                .credentialId(ByteArray.fromBase64(
-                    Base64.getEncoder().encodeToString(pk.getCredentialId())))
+                // ByteArray.fromBytes() wraps raw bytes directly — no Base64 encode/decode needed
+                .credentialId(new ByteArray(pk.getCredentialId()))
                 .userHandle(userHandle)
-                .publicKeyCose(ByteArray.fromBase64(
-                    Base64.getEncoder().encodeToString(pk.getPublicKeyCose())))
+                .publicKeyCose(new ByteArray(pk.getPublicKeyCose()))
                 .signatureCount(pk.getSignatureCount())
                 .backupEligible(pk.isBackedUp())
                 .backupState(pk.isBackedUp())
@@ -585,6 +661,7 @@ public class PasskeyCredentialRepository implements CredentialRepository {
 ```
 
 ### PasskeyController (6 endpoints)
+
 ```java
 @RestController
 @RequestMapping("/auth/passkey")
@@ -716,12 +793,14 @@ public class PasskeyController {
 ## Go + Gin + go-webauthn/webauthn (Full Example)
 
 ### Install
+
 ```bash
 go get github.com/go-webauthn/webauthn
 go get github.com/gin-gonic/gin
 ```
 
 ### Struct and DB Model
+
 ```go
 // models/passkey.go
 package models
@@ -748,6 +827,7 @@ type Passkey struct {
 ```
 
 ### WebAuthn User Interface Implementation
+
 ```go
 // The go-webauthn library requires a User interface implementation
 // models/webauthn_user.go
@@ -776,9 +856,13 @@ func (u WebAuthnUser) WebAuthnCredentials() []webauthn.Credential {
             AttestationType: "none",
             Transport:       nil, // parsed from JSON in service layer
             Flags: webauthn.CredentialFlags{
-                UserVerified: true,
+                // Do NOT hardcode UserVerified: true here.
+                // These flags reflect what was observed at registration time.
+                // The library re-checks UV from the live auth response during
+                // FinishDiscoverableLogin — hardcoding true here misrepresents
+                // credentials where UV was not performed and can hide real failures.
                 BackupEligible: pk.BackedUp,
-                BackupState: pk.BackedUp,
+                BackupState:    pk.BackedUp,
             },
             Authenticator: webauthn.Authenticator{
                 SignCount: uint32(pk.Counter),
@@ -790,6 +874,7 @@ func (u WebAuthnUser) WebAuthnCredentials() []webauthn.Credential {
 ```
 
 ### Handler Setup and RP Config
+
 ```go
 // handlers/passkey.go
 package handlers
@@ -856,13 +941,19 @@ func (h *PasskeyHandler) RegisterVerify(c *gin.Context) {
     userID := c.GetString("user_id")
     user, _ := h.passkeyRepo.GetWebAuthnUser(userID)
 
-    // Retrieve and immediately delete challenge
-    sessionJSON, _ := h.store.Get("reg:" + userID)
-    h.store.Del("reg:" + userID) // CRITICAL: delete in all paths
+    // Retrieve and immediately delete challenge.
+    // Delete before checking the error: ensures the challenge is always removed
+    // even if the store returns a partial result or the handler returns early.
+    sessionJSON, getErr := h.store.Get("reg:" + userID)
+    h.store.Del("reg:" + userID)
+    if getErr != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "session store unavailable"})
+        return
+    }
 
     var sessionData webauthn.SessionData
     if err := json.Unmarshal([]byte(sessionJSON), &sessionData); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "session not found"})
+        c.JSON(http.StatusBadRequest, gin.H{"error": "session not found or expired"})
         return
     }
 
@@ -901,12 +992,16 @@ func (h *PasskeyHandler) AuthChallenge(c *gin.Context) {
 func (h *PasskeyHandler) AuthVerify(c *gin.Context) {
     sessionID := c.GetString("session_id")
 
-    sessionJSON, _ := h.store.Get("auth:" + sessionID)
-    h.store.Del("auth:" + sessionID) // CRITICAL: delete in all paths
+    sessionJSON, getErr := h.store.Get("auth:" + sessionID)
+    h.store.Del("auth:" + sessionID)
+    if getErr != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "session store unavailable"})
+        return
+    }
 
     var sessionData webauthn.SessionData
     if err := json.Unmarshal([]byte(sessionJSON), &sessionData); err != nil {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "session not found"})
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "session not found or expired"})
         return
     }
 
@@ -953,6 +1048,7 @@ func (h *PasskeyHandler) DeletePasskey(c *gin.Context) {
 ```
 
 ### Route Registration
+
 ```go
 // main.go or routes.go
 func SetupRoutes(r *gin.Engine, h *PasskeyHandler, authMiddleware gin.HandlerFunc) {
@@ -979,11 +1075,13 @@ func SetupRoutes(r *gin.Engine, h *PasskeyHandler, authMiddleware gin.HandlerFun
 ## Laravel + web-auth/webauthn-lib (PHP)
 
 ### Install
+
 ```bash
-composer require web-auth/webauthn-lib
+composer require "web-auth/webauthn-lib:^4"   # v4+ required — PHP 8.1+, PSR-20 clock
 ```
 
 ### Migration (additive)
+
 ```php
 // database/migrations/xxxx_add_passkeys.php
 public function up(): void
@@ -1010,6 +1108,7 @@ public function up(): void
 ```
 
 ### Eloquent Model
+
 ```php
 // app/Models/Passkey.php
 class Passkey extends Model
@@ -1024,6 +1123,7 @@ class Passkey extends Model
 ```
 
 ### Controller Scaffold
+
 ```php
 // app/Http/Controllers/PasskeyController.php
 use Webauthn\PublicKeyCredentialRpEntity;
@@ -1047,13 +1147,15 @@ class PasskeyController extends Controller
     public function registerChallenge(Request $request): JsonResponse
     {
         $user = $request->user();
-        $challenge = base64_encode(random_bytes(32));
+        // WebAuthn requires base64url encoding (not standard base64).
+        // base64url differs: uses '-' and '_' instead of '+' and '/', no padding.
+        $challenge = $this->base64url(random_bytes(32));
         $request->session()->put('passkey_challenge', $challenge);
 
         $options = [
             'rp'     => ['id' => $this->rpId, 'name' => $this->rpName],
             'user'   => [
-                'id'          => base64_encode($user->passkey_user_id ?? $user->id),
+                'id'          => $this->base64url($user->passkey_user_id ?? $user->id),
                 'name'        => $user->email,
                 'displayName' => $user->name,
             ],
@@ -1068,7 +1170,7 @@ class PasskeyController extends Controller
             ],
             'excludeCredentials'      => $user->passkeys->map(fn($pk) => [
                 'type'       => 'public-key',
-                'id'         => base64_encode($pk->credential_id),
+                'id'         => $this->base64url($pk->credential_id),
                 'transports' => $pk->transports ?? [],
             ])->toArray(),
             'attestation' => 'none',
@@ -1077,22 +1179,40 @@ class PasskeyController extends Controller
         return response()->json($options);
     }
 
+    /** Encode binary data as base64url (no padding, URL-safe chars). */
+    private function base64url(string $data): string
+    {
+        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+    }
+
     // POST /auth/passkey/register/verify  (auth:sanctum)
     public function registerVerify(Request $request): JsonResponse
     {
-        // Hand off to web-auth/webauthn-lib for full verification
-        // then store the credential
         $challenge = $request->session()->pull('passkey_challenge');
-        // ... verify using webauthn-lib's AuthenticatorAttestationResponseValidator
-        $user = $request->user();
-        $user->passkeys()->create([
-            'credential_id' => base64_decode($request->input('rawId')),
-            'public_key'    => $decodedPublicKey,        // from verification result
-            'counter'       => $verificationResult->getAuthenticatorData()->getSignCount(),
-            'device_type'   => $verificationResult->getAuthenticatorData()->getAttestedCredentialData()->getAaguid() ? 'multiDevice' : 'singleDevice',
-            'backed_up'     => (bool)($flags & 0x08),
+        if (!$challenge) {
+            return response()->json(['error' => 'Session expired'], 400);
+        }
+
+        // Decode the attestation response and verify with web-auth/webauthn-lib.
+        // The exact API depends on your webauthn-lib version — consult its README
+        // for AuthenticatorAttestationResponseValidator usage. The fields below
+        // are what you store after a successful verification result:
+        //
+        // $credentialId  = base64_decode(strtr($request->input('rawId'), '-_', '+/'));
+        // $publicKey     = $verificationResult->getAttestedCredentialData()->getCredentialPublicKey();
+        // $signCount     = $verificationResult->getAuthenticatorData()->getSignCount();
+        // $aaguid        = (string) $verificationResult->getAttestedCredentialData()->getAaguid();
+        // $backedUp      = (bool) ($verificationResult->getAuthenticatorData()->getFlags() & 0x08);
+        //
+        // After verification, persist the credential:
+        $request->user()->passkeys()->create([
+            'credential_id' => $credentialId,
+            'public_key'    => $publicKey,
+            'counter'       => $signCount,
+            'device_type'   => $backedUp ? 'multiDevice' : 'singleDevice',
+            'backed_up'     => $backedUp,
             'transports'    => $request->input('response.transports', []),
-            'aaguid'        => (string)$verificationResult->getAuthenticatorData()->getAttestedCredentialData()->getAaguid(),
+            'aaguid'        => $aaguid,
         ]);
         return response()->json(['verified' => true]);
     }
@@ -1100,7 +1220,7 @@ class PasskeyController extends Controller
     // POST /auth/passkey/authenticate/challenge  (public)
     public function authChallenge(Request $request): JsonResponse
     {
-        $challenge = base64_encode(random_bytes(32));
+        $challenge = $this->base64url(random_bytes(32));
         $request->session()->put('passkey_auth_challenge', $challenge);
         return response()->json([
             'challenge'        => $challenge,
@@ -1115,7 +1235,8 @@ class PasskeyController extends Controller
     public function authVerify(Request $request): JsonResponse
     {
         $challenge = $request->session()->pull('passkey_auth_challenge');
-        $credentialId = base64_decode($request->input('rawId'));
+        // rawId from browser is base64url — convert to standard base64 before decoding
+        $credentialId = base64_decode(strtr($request->input('rawId'), '-_', '+/'));
         $passkey = Passkey::where('credential_id', $credentialId)
                          ->with('user')->firstOrFail();
         // ... verify signature with webauthn-lib
@@ -1142,6 +1263,7 @@ class PasskeyController extends Controller
 ```
 
 ### Routes (routes/api.php)
+
 ```php
 Route::prefix('auth/passkey')->group(function () {
     Route::post('authenticate/challenge', [PasskeyController::class, 'authChallenge']);
@@ -1157,6 +1279,7 @@ Route::prefix('auth/passkey')->group(function () {
 ```
 
 ### Config (config/passkeys.php)
+
 ```php
 return [
     'rp_id'  => env('RP_ID', 'localhost'),
@@ -1174,40 +1297,6 @@ PASSKEY_CHALLENGE_TTL=300              # seconds
 
 ---
 
-## Database Schema — Passkey Table (generic)
-
-```sql
-CREATE TABLE passkeys (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  credential_id   BYTEA UNIQUE NOT NULL,
-  public_key      BYTEA NOT NULL,
-  counter         BIGINT NOT NULL DEFAULT 0,
-  device_type     VARCHAR(32) NOT NULL DEFAULT 'singleDevice',
-  backed_up       BOOLEAN NOT NULL DEFAULT FALSE,
-  transports      TEXT[] DEFAULT '{}',
-  aaguid          VARCHAR(36),
-  name            VARCHAR(100),
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  last_used_at    TIMESTAMPTZ
-);
-
-CREATE INDEX idx_passkeys_user_id ON passkeys(user_id);
-```
-
-For MongoDB:
-```javascript
-{
-  userId: ObjectId,
-  credentialId: Binary,        // unique index
-  publicKey: Binary,
-  counter: Long,
-  deviceType: String,
-  backedUp: Boolean,
-  transports: [String],
-  aaguid: String,              // passkey provider AAGUID
-  name: String,
-  createdAt: Date,
-  lastUsedAt: Date
-}
-```
+> For the canonical passkey table schema (SQL, Prisma, TypeORM, SQLAlchemy,
+> Hibernate, Eloquent, ActiveRecord, and MongoDB), see `references/db-schema.md`.
+> Do not duplicate schema definitions here — db-schema.md is the single source of truth.

@@ -3,6 +3,7 @@
 ## Selection Criteria (from passkeys.dev)
 
 When choosing a library, check:
+
 - WebAuthn Level 2 or Level 3 support
 - Handles both registration AND authentication verification server-side
 - Actively maintained (community activity, recent issues)
@@ -15,43 +16,43 @@ When choosing a library, check:
 
 ### TypeScript / Node.js (Backend)
 
-| Library | Package | Best for | Notes |
-|---------|---------|---------|-------|
-| **SimpleWebAuthn** | `@simplewebauthn/server` + `@simplewebauthn/browser` | NestJS, Express, Fastify, Next.js | ⭐ Top recommendation. Full-stack TS. Tightly integrated client+server. Excellent docs. |
-| **@passwordless-id/webauthn** | `@passwordless-id/webauthn` | Lightweight Node.js setups | Dependency-free, minimalistic, opinionated. Good for Cloudflare Workers. |
+| Library                       | Package                                              | Best for                          | Notes                                                                                |
+| ----------------------------- | ---------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------ |
+| **SimpleWebAuthn**            | `@simplewebauthn/server` + `@simplewebauthn/browser` | NestJS, Express, Fastify, Next.js | Top recommendation. Full-stack TS. Tightly integrated client+server. Excellent docs. |
+| **@passwordless-id/webauthn** | `@passwordless-id/webauthn`                          | Lightweight Node.js setups        | Dependency-free, minimalistic, opinionated. Good for Cloudflare Workers.             |
 
 **For NestJS specifically:** Use SimpleWebAuthn server-side + `@simplewebauthn/browser` client-side.
 
 ### Python (Backend)
 
-| Library | Package | Best for |
-|---------|---------|---------|
+| Library         | Package                | Best for               |
+| --------------- | ---------------------- | ---------------------- |
 | **py_webauthn** | `pip install webauthn` | Django, FastAPI, Flask |
 
 Maintained by Duo Labs. Supports full registration + authentication verification.
 
 ### Java (Backend)
 
-| Library | Artifact | Best for |
-|---------|---------|---------|
-| **java-webauthn-server** | `com.yubico:webauthn-server-core` | Spring Boot, Jakarta EE |
-| **WebAuthn4J** | `com.webauthn4j:webauthn4j-core` | Spring Boot (alternative) |
+| Library                  | Artifact                          | Best for                  |
+| ------------------------ | --------------------------------- | ------------------------- |
+| **java-webauthn-server** | `com.yubico:webauthn-server-core` | Spring Boot, Jakarta EE   |
+| **WebAuthn4J**           | `com.webauthn4j:webauthn4j-core`  | Spring Boot (alternative) |
 
 Yubico's library is the most widely used and battle-tested for Spring Boot.
 
 ### PHP (Backend)
 
-| Library | Package | Best for |
-|---------|---------|---------|
+| Library                   | Package                                  | Best for         |
+| ------------------------- | ---------------------------------------- | ---------------- |
 | **web-auth/webauthn-lib** | `composer require web-auth/webauthn-lib` | Laravel, Symfony |
 
 Most complete PHP WebAuthn library. Laravel-specific wrappers exist.
 
 ### Ruby (Backend)
 
-| Library | Gem | Best for |
-|---------|---------|---------|
-| **webauthn-ruby** | `gem 'webauthn'` | Rails (base) |
+| Library             | Gem                     | Best for       |
+| ------------------- | ----------------------- | -------------- |
+| **webauthn-ruby**   | `gem 'webauthn'`        | Rails (base)   |
 | **devise-passkeys** | `gem 'devise-passkeys'` | Rails + Devise |
 | **warden-webauthn** | `gem 'warden-webauthn'` | Rails + Warden |
 
@@ -59,30 +60,30 @@ If using Devise: use `devise-passkeys` directly (wraps `webauthn-ruby`).
 
 ### Go (Backend)
 
-| Library | Import | Best for |
-|---------|---------|---------|
+| Library                  | Import                            | Best for                          |
+| ------------------------ | --------------------------------- | --------------------------------- |
 | **go-webauthn/webauthn** | `github.com/go-webauthn/webauthn` | Gin, Echo, Chi, standard net/http |
 
 Fork of Duo Labs' original Go library. Most actively maintained.
 
 ### .NET (Backend)
 
-| Library | Package | Best for |
-|---------|---------|---------|
-| **FIDO2 .NET Library** | `Fido2NetLib` | ASP.NET Core |
-| **WebAuthn.Net** | `WebAuthn.Net` | ASP.NET Core (alternative, Dodo Brands) |
+| Library                | Package        | Best for                                |
+| ---------------------- | -------------- | --------------------------------------- |
+| **FIDO2 .NET Library** | `Fido2NetLib`  | ASP.NET Core                            |
+| **WebAuthn.Net**       | `WebAuthn.Net` | ASP.NET Core (alternative, Dodo Brands) |
 
 ### Rust (Backend)
 
-| Library | Crate | Best for |
-|---------|---------|---------|
+| Library         | Crate         | Best for        |
+| --------------- | ------------- | --------------- |
 | **webauthn-rs** | `webauthn-rs` | Actix-web, Axum |
 
 ### Elixir (Backend)
 
-| Library | Package | Best for |
-|---------|---------|---------|
-| **wax** | `{:wax, "~> 0.6"}` | Phoenix |
+| Library | Package            | Best for |
+| ------- | ------------------ | -------- |
+| **wax** | `{:wax, "~> 0.6"}` | Phoenix  |
 
 Elixir's `wax` library handles both registration and authentication verification for WebAuthn.
 
@@ -92,10 +93,10 @@ Elixir's `wax` library handles both registration and authentication verification
 
 ### Any framework (JS/TS)
 
-| Library | Package | Notes |
-|---------|---------|-------|
-| **@simplewebauthn/browser** | npm | Pairs with SimpleWebAuthn server. Recommended. |
-| **@passwordless-id/webauthn** (client) | npm | Use `import {client} from '@passwordless-id/webauthn'` |
+| Library                                | Package | Notes                                                  |
+| -------------------------------------- | ------- | ------------------------------------------------------ |
+| **@simplewebauthn/browser**            | npm     | Pairs with SimpleWebAuthn server. Recommended.         |
+| **@passwordless-id/webauthn** (client) | npm     | Use `import {client} from '@passwordless-id/webauthn'` |
 
 ### Framework-specific wrappers (community)
 
@@ -115,27 +116,37 @@ Elixir's `wax` library handles both registration and authentication verification
 
 ## Stack-to-Library Quick Reference
 
-| Backend Stack | Recommended Server Lib | Frontend Lib |
-|---|---|---|
-| NestJS + Prisma | `@simplewebauthn/server` | `@simplewebauthn/browser` |
-| Express + Mongoose | `@simplewebauthn/server` | `@simplewebauthn/browser` |
-| Fastify + TypeORM | `@simplewebauthn/server` | `@simplewebauthn/browser` |
+| Backend Stack        | Recommended Server Lib   | Frontend Lib              |
+| -------------------- | ------------------------ | ------------------------- |
+| NestJS + Prisma      | `@simplewebauthn/server` | `@simplewebauthn/browser` |
+| Express + Mongoose   | `@simplewebauthn/server` | `@simplewebauthn/browser` |
+| Fastify + TypeORM    | `@simplewebauthn/server` | `@simplewebauthn/browser` |
 | Next.js (API routes) | `@simplewebauthn/server` | `@simplewebauthn/browser` |
-| Django + Django ORM | `py_webauthn` | `@simplewebauthn/browser` |
-| FastAPI + SQLAlchemy | `py_webauthn` | `@simplewebauthn/browser` |
-| Spring Boot + JPA | `java-webauthn-server` | `@simplewebauthn/browser` |
-| Laravel + Eloquent | `web-auth/webauthn-lib` | `@simplewebauthn/browser` |
-| Rails + Devise | `devise-passkeys` | `@simplewebauthn/browser` |
-| Go + Gin | `go-webauthn/webauthn` | `@simplewebauthn/browser` |
-| ASP.NET Core | `Fido2NetLib` | `@simplewebauthn/browser` |
-| Rust + Actix | `webauthn-rs` | `@simplewebauthn/browser` |
-| Elixir + Phoenix | `wax` | `@simplewebauthn/browser` |
+| Django + Django ORM  | `py_webauthn`            | `@simplewebauthn/browser` |
+| FastAPI + SQLAlchemy | `py_webauthn`            | `@simplewebauthn/browser` |
+| Spring Boot + JPA    | `java-webauthn-server`   | `@simplewebauthn/browser` |
+| Laravel + Eloquent   | `web-auth/webauthn-lib`  | `@simplewebauthn/browser` |
+| Rails + Devise       | `devise-passkeys`        | `@simplewebauthn/browser` |
+| Go + Gin             | `go-webauthn/webauthn`   | `@simplewebauthn/browser` |
+| ASP.NET Core         | `Fido2NetLib`            | `@simplewebauthn/browser` |
+| Rust + Actix         | `webauthn-rs`            | `@simplewebauthn/browser` |
+| Elixir + Phoenix     | `wax`                    | `@simplewebauthn/browser` |
 
 ---
 
-## Version Notes (as of 2025)
+## Version Notes
 
-- SimpleWebAuthn: v10+ — requires Node 20+, ES modules
-- @passwordless-id/webauthn: v2+ — requires Node 19+, breaking changes from v1
-- py_webauthn: v2+ — full Python 3.8+ support
-- java-webauthn-server: v2+ — Java 17+
+| Library                                              | Minimum version | Runtime requirement  | Breaking change from                                                                                                                                                                                |
+| ---------------------------------------------------- | --------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@simplewebauthn/server` + `@simplewebauthn/browser` | **v11**         | Node 20+, ES modules | v9 to v10: `startRegistration({ optionsJSON })` · v10 to v11: `verifyAuthenticationResponse` uses `credential: { id, publicKey }` instead of `authenticator: { credentialID, credentialPublicKey }` |
+| `@passwordless-id/webauthn`                          | **v2**          | Node 19+             | v1 to v2: full API redesign                                                                                                                                                                         |
+| `py_webauthn`                                        | **v2**          | Python 3.9+          | v1 to v2: class-based API replaced with functions                                                                                                                                                   |
+| `java-webauthn-server`                               | **v2**          | Java 17+             | v1 to v2: credential storage API changed                                                                                                                                                            |
+| `go-webauthn/webauthn`                               | **v0.10**       | Go 1.21+             | v0.9 to v0.10: `FinishDiscoverableLogin` signature changed                                                                                                                                          |
+| `web-auth/webauthn-lib`                              | **v4**          | PHP 8.1+             | v3 to v4: PSR-20 clock interface required                                                                                                                                                           |
+
+> ⚠️ **Always pin a minimum version when installing.** The reference code in this
+> skill uses the minimum versions listed above. Installing an older version will
+> cause silent or confusing failures — for example, a project using SimpleWebAuthn
+> v10 will break on `verifyAuthenticationResponse` because the `credential` argument
+> did not exist until v11; v10 expects `authenticator` with different property names.

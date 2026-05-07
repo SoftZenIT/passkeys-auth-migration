@@ -1,0 +1,9 @@
+{
+  "name": "passkeys-auth-migration",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:evals": "node evals/run-evals.mjs"
+  }
+}

@@ -1,131 +1,71 @@
 # Changelog
 
-All notable changes to this skill will be documented in this file.
-
-## [1.1.0] — 2026-04-23
-
-### Added
-
-**New reference files:**
-- `references/troubleshooting.md` — 10 problem categories with symptoms, causes,
-  and fixes: rpID mismatch, Conditional UI not appearing, challenge expiry,
-  origin mismatch, NotAllowedError causes, cross-browser incompatibilities,
-  UV flag non-compliance, orphaned credentials, multiple passkey confusion,
-  generic ceremony debugging. Includes FIDO-tested error message templates
-  from passkeycentral.org messaging guidelines.
-- `references/testing-guide.md` — 4-level testing strategy: unit tests (mock
-  WebAuthn library), integration tests (HTTP endpoint testing), E2E tests
-  (Chrome virtual authenticator via CDP with Playwright/Puppeteer), CI/CD
-  configuration (GitHub Actions with HTTPS and self-signed certs).
-
-**Backend completions:**
-- Spring Boot + java-webauthn-server: full implementation added (RelyingParty
-  bean, CredentialRepository interface, PasskeyController with all 6 endpoints,
-  AssertionResult handling, counter update). Previously only had Maven dep + JPA entity.
-- Go + Gin + go-webauthn/webauthn: full implementation added (WebAuthnUser
-  interface, handler setup, all 6 routes, FinishDiscoverableLogin, challenge
-  store integration). Previously only had config struct.
-
-**Security enhancements:**
-- WebAuthn Signal API documentation (signalUnknownCredential, signalAllAcceptedCredentials)
-- UV flag non-compliance warning: 1Password Extension, Bitwarden Extension,
-  KeePassXC, Proton Pass Extension, Okta Personal Extension all set UV=true
-  without actual verification (as of April 2026)
-- AAGUID → provider name mapping guide: FIDO MDS reference + top-20 inline
-  lookup table + fallback label strategy
-
-**SKILL.md improvements:**
-- 4 new gotchas: Signal API for orphaned credentials, UV flag non-compliance,
-  `/.well-known/passkey-endpoints` for Google PM upgrade prompts, excludeCredentials
-  preventing duplicate passkeys
-- Structured backend context template for frontend-only projects (replaces
-  vague "ask questions" instruction)
-- `/.well-known/passkey-endpoints` step added to Phase 2 frontend plan
-- Signal API error handling added to Phase 2 error handling step
-- References table updated with troubleshooting.md and testing-guide.md
-
-**Rollout guide additions:**
-- Real-world benchmarks: Google (13.8% → 63.8% success rate, 30s → 15s time),
-  KAYAK (50% time reduction), TikTok (97% success rate), Target (99% adoption)
-- Contact center cost context: 30–60% of auth support costs eliminated by passkeys
-- Account recovery enrollment flow: how to prompt passkey creation during
-  password reset/account recovery (with security gating requirement)
-- Email notification template for new passkey creation events
-
-**DB schema additions:**
-- Performance and indexing section: query patterns, Redis sizing guidelines,
-  soft delete strategy, passkey count limits (20–50 max per user)
-
-**Compatibility:**
-- All instructions use agent-agnostic language (no Claude-specific tool names)
-- Compatible with: Claude Code, GitHub Copilot, Cursor, Windsurf, Gemini CLI,
-  OpenAI Codex, and any code-capable AI agent
-
----
-
 ## [1.0.0] — 2026-04-01
 
-### Initial release
+### Initial Release
 
-**Backend support (12 frameworks):**
-- NestJS + Prisma (full controller, service, DTO scaffold)
-- Django + py_webauthn (registration + authentication views)
-- Spring Boot + java-webauthn-server (JPA entity)
-- Laravel + web-auth/webauthn-lib (full controller, routes, Sanctum middleware)
-- Express, Fastify, Next.js API routes (via SimpleWebAuthn)
-- Go + go-webauthn/webauthn (config struct)
-- Rails + devise-passkeys
-- ASP.NET Core + Fido2NetLib
-- Rust + webauthn-rs
-- Elixir Phoenix + wax
+Comprehensive passkey authentication migration guide for modern web and mobile applications.
 
-**ORM / Database schemas (8 ORMs + raw SQL):**
+### Backend Support (12 Frameworks)
+
+- **NestJS + Prisma:** Full controller, service, and DTO scaffold
+- **Django + py_webauthn:** Registration and authentication views
+- **Spring Boot + java-webauthn-server:** JPA entity with full implementation
+- **Laravel + web-auth/webauthn-lib:** Complete controller, routes, and Sanctum middleware
+- **Express, Fastify, Next.js:** API route implementations via SimpleWebAuthn
+- **Go + go-webauthn/webauthn:** Configuration and handler setup
+- **Rails + devise-passkeys:** Framework integration
+- **ASP.NET Core + Fido2NetLib:** .NET implementation
+- **Rust + webauthn-rs:** Rust-native support
+- **Elixir Phoenix + wax:** Phoenix framework integration
+
+### Database & ORM Support (8 Options)
+
 - Prisma (PostgreSQL + MySQL workaround)
-- TypeORM
-- Sequelize
-- Mongoose (vanilla + NestJS decorator)
-- SQLAlchemy (Alembic-compatible)
-- Django ORM
-- Hibernate / JPA
-- Raw SQL (PostgreSQL + MySQL)
+- TypeORM, Sequelize, SQLAlchemy (Alembic-compatible)
+- Mongoose (vanilla + NestJS decorator pattern)
+- Django ORM, Hibernate/JPA
+- Raw SQL (PostgreSQL + MySQL schemas)
 
-**Frontend support (7 frameworks):**
-- Vue 3 (full composable with conditional UI, registration, authentication)
-- React (hooks pattern)
-- Angular (service pattern)
-- Svelte / SvelteKit (store pattern)
-- Nuxt 3 (client-only plugin)
-- Next.js (dynamic import)
+### Frontend Support (7 Frameworks)
 
-**UX compliance:**
+- **Vue 3:** Full composable with conditional UI, registration, and authentication
+- **React:** Custom hooks pattern implementation
+- **Angular:** Service-based architecture
+- **Svelte/SvelteKit:** Store pattern
+- **Nuxt 3:** Client-only plugin
+- **Next.js:** Dynamic import strategy
+
+### UX & Compliance
+
 - All 10 FIDO Alliance UX principles implemented
-- All 3 content principles with copy templates
-- 2 required design patterns (Create/Manage + Sign In)
-- 7 optional design patterns documented
-- Conditional UI (form autofill) with useBrowserAutofill
-- Cross-device upgrade interstitial
-- Post-login upgrade nudge
-- Ready-to-use UX copy templates (assets/ux-copy-templates.md)
+- Conditional UI (form autofill) support
+- Cross-device upgrade interstitial and post-login nudge
+- 2 required + 7 optional design patterns
+- Ready-to-use UX copy templates
 - FIDO passkey icon usage guidance
 
-**Security:**
-- 30+ checkpoint security checklist (13 categories A–M)
-- 10 gotchas in SKILL.md body (rpID, challenge deletion, BigInt, etc.)
+### Security
+
+- 30+ checkpoint security checklist (13 categories)
 - Counter replay protection with correct BigInt/Number conversion
-- AAGUID-based provider identification
+- AAGUID-based provider identification and mapping
 - PII-free passkeyUserId per W3C spec and Google guidance
 - OWASP Top 10 coverage mapping
+- 10 documented gotchas and edge cases (rpID mismatch, challenge expiry, etc.)
 
-**Rollout:**
+### Rollout & Adoption
+
 - Gradual and Rapid rollout strategies (5 phases each)
-- 4-stage phishing prevention journey (Legacy → Full Prevention)
+- 4-stage phishing prevention journey (Legacy -> Full Prevention)
 - Post-launch metrics tracking guidance
 - Password deprecation roadmap
-- Anti-patterns list
+- Anti-patterns and migration risks documented
 
-**Skill infrastructure:**
-- agentskills.io specification compliant (frontmatter, progressive disclosure)
-- Cross-agent compatible (Claude Code, Copilot, Cursor, Windsurf, Gemini CLI, Codex)
-- 8 eval test cases (6 positive + 2 negative) with assertions
+### Project Infrastructure
+
+- agentskills.io specification compliant
+- Cross-agent compatible (Claude Code, GitHub Copilot, Cursor, Windsurf, Gemini CLI, OpenAI Codex)
+- 8 evaluation test cases (6 positive + 2 negative)
 - MIT licensed
 - Environment variable templates for all frameworks
