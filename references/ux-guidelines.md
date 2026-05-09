@@ -77,10 +77,12 @@ Keep passkey info always visible:
 ### 9. Passkey cards with meaningful content
 Per credential card must show:
 - Official passkey icon
-- Provider name (from AAGUID: "Google Password Manager", "iCloud Keychain", etc.)
+- Name (user-assigned or AAGUID-resolved default, e.g. "iCloud Keychain")
+- Provider name / AAGUID label below the name (muted subtitle)
 - Date created
 - Last used date
 - Sync status: "Synced across devices" (backed_up=true) or "This device only" (backed_up=false)
+- Rename button (inline edit — pencil icon or "Rename" text link)
 - Delete/Remove button
 
 ### 10. Plan UX per your security policy
@@ -191,6 +193,38 @@ Confirmation dialog must include:
 
 ### App ↔ Website Passkey Sharing (Related Origins)
 If you have both a website and a native app: configure `/.well-known/assetlinks.json` (Android) and `/.well-known/apple-app-site-association` (iOS) to share passkeys across app and site.
+
+### Passkey Naming
+Reference: FIDO Alliance passkey card guidelines (passkeycentral.org/design-guidelines)
+
+Users can have multiple passkeys across different devices and providers. Meaningful names help them identify which passkey is which — especially important when managing 3+ credentials.
+
+**Default name**: Resolve from AAGUID at registration time (e.g. "iCloud Keychain", "Google Password Manager"). If AAGUID is unrecognized, use "Passkey" as fallback. Never show the raw UUID.
+
+**User-assigned name**: Allow inline rename directly from the passkey card in Account Settings.
+- Trigger: pencil/edit icon or "Rename" text button beside the name
+- On click: replace name text with a text input pre-filled with the current name
+- Actions: Save (commits to backend) and Cancel (reverts to original name)
+- Validation: non-empty, max 100 characters, trimmed before sending
+
+**Post-creation naming (optional)**: After successful passkey creation, show a "Name this passkey" prompt with the AAGUID-resolved name pre-filled. Include "Save name" and "Skip" options. Never block passkey creation or delay success confirmation waiting for a name.
+
+**When names matter most**: When a user has passkeys from both iCloud Keychain and Google Password Manager, the default AAGUID names are already meaningful. Rename becomes most valuable for hardware keys or when two passkeys come from the same provider.
+
+**Design pattern**: Show the user-assigned name as the primary card title. Show the AAGUID-resolved provider name as a subtitle below (smaller, muted text). This way users get context (provider) even after they rename.
+
+### Design System Compliance
+Passkey UI must match the app's existing visual language — not introduce new patterns.
+
+Before writing any passkey UI component:
+1. Inspect the sign-in page and account settings for existing button, input, modal, badge, and card components
+2. Note the component library (MUI, Tailwind + shadcn/ui, Chakra UI, Ant Design, Bootstrap, Mantine, Vuetify, etc.)
+3. Use the same `<Button>`, `<Modal>`, `<Input>`, `<Badge>`, `<Card>` components the app already uses — never raw HTML elements if a design system component exists
+4. Match spacing scale, border-radius, color tokens, and font sizing exactly
+5. Use the same error state pattern (toast, inline message, banner) used elsewhere in the app
+6. Use the same loading state pattern (spinner, skeleton, disabled + loading indicator) used elsewhere
+
+Anti-pattern: Generating a passkey section with Tailwind utility classes when the rest of the app uses MUI `<Button variant="contained">`. This makes the passkey UI visually jarring and maintenance-heavy.
 
 ---
 

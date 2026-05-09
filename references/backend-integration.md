@@ -363,6 +363,95 @@ try {
 
 ---
 
+## NestJS — Common Pitfalls
+
+### DTO fix: SimpleWebAuthn browser v13+ extra fields
+
+SimpleWebAuthn browser v13+ sends `publicKeyAlgorithm`, `publicKey`, and
+`authenticatorData` in the registration response (valid W3C Level 3 fields).
+A NestJS `ValidationPipe` with `forbidNonWhitelisted: true` will reject these
+fields before `verifyRegistrationResponse()` even runs, causing a 400 with a
+misleading "cancelled" message on the frontend.
+
+```typescript
+// dto/register-verify.dto.ts
+import { IsString, IsOptional } from 'class-validator';
+
+export class RegisterVerifyDto {
+  @IsString() id: string;
+  @IsString() rawId: string;
+  @IsString() type: string;
+
+  response: {
+    attestationObject: string;
+    clientDataJSON: string;
+    @IsOptional() transports?: string[];
+    // SWA browser v13+ (Chrome 120+, Safari 17.4+, Edge 120+):
+    @IsOptional() publicKeyAlgorithm?: number;
+    @IsOptional() publicKey?: string;
+    @IsOptional() authenticatorData?: string;
+  };
+
+  @IsOptional() clientExtensionResults?: Record<string, unknown>;
+  @IsOptional() authenticatorAttachment?: string;
+}
+
+// In passkey.controller.ts — override the global pipe for this endpoint only:
+@Post('register/verify')
+@UseGuards(JwtAuthGuard)
+@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false }))
+async verifyRegistration(@Request() req, @Body() body: RegisterVerifyDto) { ... }
+```
+
+### BigInt serialization: never return raw Prisma rows
+
+Prisma maps `counter` to native JS `bigint`. `JSON.stringify` (used by
+Express/Nest to serialize responses) cannot serialize `bigint`, so any endpoint
+returning the raw Prisma row throws `TypeError: Do not know how to serialize a
+BigInt` after the DB write has already succeeded.
+
+Always return a response DTO from all passkey endpoints:
+
+```typescript
+// In finishRegistration() — after prisma.passkey.create(), return a safe DTO:
+const saved = await this.prisma.passkey.create({ data: { ... } });
+return {
+  id: saved.id,
+  name: saved.name,
+  deviceType: saved.deviceType,
+  backedUp: saved.backedUp,
+  transports: saved.transports,
+  aaguid: saved.aaguid,
+  createdAt: saved.createdAt,
+  lastUsedAt: saved.lastUsedAt,
+  // counter intentionally omitted — clients never need it; it cannot be JSON-serialized
+};
+
+// For the list endpoint, exclude counter from the Prisma select:
+const passkeys = await this.prisma.passkey.findMany({
+  where: { userId: req.user.id },
+  select: {
+    id: true, name: true, deviceType: true, backedUp: true,
+    transports: true, aaguid: true, createdAt: true, lastUsedAt: true,
+    // counter excluded — BigInt cannot be JSON-serialized by JSON.stringify
+  },
+  orderBy: { createdAt: 'desc' },
+});
+```
+
+### Separate loading states: explicit button vs. conditional UI
+
+The conditional UI call `startAuthentication({ useBrowserAutofill: true })` is
+a long-lived pending promise — it waits for the user to pick from the autofill
+dropdown. If the component exposes a single `loading` flag for both this
+background call and the explicit button, the "Sign in with a passkey" button
+becomes unclickable while the browser waits (which can be indefinitely).
+
+Use two separate states and see the two-loading-states pattern in
+`references/frontend-integration.md` under **React — Two Loading States**.
+
+---
+
 ## Django + py_webauthn
 
 ### Install
@@ -400,8 +489,10 @@ class Passkey(models.Model):
 ### Registration View
 
 ```python
+import base64
 import json
 from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 from webauthn import (
     generate_registration_options,
     verify_registration_response,
@@ -414,8 +505,10 @@ from webauthn.helpers.structs import (
     ResidentKeyRequirement,
     UserVerificationRequirement,
     PublicKeyCredentialDescriptor,
+    AuthenticatorTransport,
 )
 
+# Registration challenge — user IS logged in; CSRF enforced (do NOT add @csrf_exempt)
 def passkey_register_challenge(request):
     user = request.user
     existing = Passkey.objects.filter(user=user)
@@ -426,7 +519,12 @@ def passkey_register_challenge(request):
         user_name=user.email,
         user_display_name=user.get_full_name() or user.email,
         exclude_credentials=[
-            PublicKeyCredentialDescriptor(id=bytes(pk.credential_id), transports=pk.transports)
+            PublicKeyCredentialDescriptor(
+                id=bytes(pk.credential_id),
+                # CRITICAL: convert strings → enum; plain strings cause AttributeError in options_to_json
+                # when the user already has a registered passkey
+                transports=[AuthenticatorTransport(t) for t in (pk.transports or [])],
+            )
             for pk in existing
         ],
         authenticator_selection=AuthenticatorSelectionCriteria(
@@ -434,26 +532,38 @@ def passkey_register_challenge(request):
             user_verification=UserVerificationRequirement.PREFERRED,
         ),
     )
-    # Store challenge in session (py_webauthn options_to_json returns JSON string)
-    request.session['passkey_challenge'] = options.challenge
+    # MUST base64-encode: options.challenge is bytes; Django sessions use JSON serializer
+    # which cannot handle bytes objects — storing raw bytes causes TypeError on session save
+    request.session['passkey_challenge'] = base64.b64encode(options.challenge).decode()
     return JsonResponse(json.loads(options_to_json(options)))
 
 def passkey_register_verify(request):
     body = json.loads(request.body)
-    expected_challenge = request.session.pop('passkey_challenge', None)
-    verification = verify_registration_response(
-        credential=body,
-        expected_challenge=expected_challenge,
-        expected_rp_id=settings.RP_ID,
-        expected_origin=settings.APP_ORIGIN,
-        require_user_verification=False,
-    )
+    raw = request.session.pop('passkey_challenge', None)
+    if raw is None:
+        return JsonResponse({'error': 'Session expired or challenge not found'}, status=400)
+    # Decode back to bytes — py_webauthn expects bytes for expected_challenge
+    expected_challenge = base64.b64decode(raw)
+    try:
+        verification = verify_registration_response(
+            credential=body,
+            expected_challenge=expected_challenge,
+            expected_rp_id=settings.RP_ID,
+            expected_origin=settings.APP_ORIGIN,
+            require_user_verification=False,
+        )
+        # py_webauthn v2: raises an exception on failure — there is NO .verified attribute.
+        # Reaching this line means verification succeeded.
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
     Passkey.objects.create(
         user=request.user,
         credential_id=verification.credential_id,
         public_key=verification.credential_public_key,
-        sign_count=verification.sign_count,
-        device_type=verification.credential_device_type,
+        sign_count=verification.sign_count,   # field is sign_count — do NOT rename to counter
+        device_type=verification.credential_device_type.value
+            if hasattr(verification.credential_device_type, 'value')
+            else str(verification.credential_device_type),
         backed_up=verification.credential_backed_up,
         transports=body.get('response', {}).get('transports', []),
         aaguid=str(verification.aaguid) if verification.aaguid else None,
@@ -464,47 +574,62 @@ def passkey_register_verify(request):
 ### Authentication Views
 
 ```python
+import base64
 from base64 import urlsafe_b64decode
 from django.contrib.auth import login
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
 
 def _base64url_decode(val: str) -> bytes:
     """Decode base64url string to bytes (with padding fix)."""
     val += '=' * (4 - len(val) % 4)
     return urlsafe_b64decode(val)
 
+# Public endpoint — user has no session or CSRF cookie yet; @csrf_exempt is required
+@csrf_exempt
 def passkey_auth_challenge(request):
     options = generate_authentication_options(
         rp_id=settings.RP_ID,
         user_verification=UserVerificationRequirement.PREFERRED,
         allow_credentials=[],  # empty = discoverable credential flow
-        timeout=300000,
+        # 10 min timeout — hybrid/cross-device flows can take longer than 5 min
+        timeout=600000,
     )
-    request.session['passkey_auth_challenge'] = options.challenge
+    # MUST base64-encode: options.challenge is bytes; Django JSON session serializer cannot handle bytes
+    request.session['passkey_auth_challenge'] = base64.b64encode(options.challenge).decode()
     return JsonResponse(json.loads(options_to_json(options)))
 
+# Public endpoint — user authenticating, no prior session; @csrf_exempt is required
+@csrf_exempt
 def passkey_auth_verify(request):
     body = json.loads(request.body)
-    # Pop challenge before any early return so it is always consumed — prevents replay.
-    expected_challenge = request.session.pop('passkey_auth_challenge', None)
-    if expected_challenge is None:
+    # Pop challenge before any early return so it is always consumed — prevents replay
+    raw = request.session.pop('passkey_auth_challenge', None)
+    if raw is None:
         return JsonResponse({'error': 'Session expired or challenge not found'}, status=400)
+    expected_challenge = base64.b64decode(raw)  # decode back to bytes for py_webauthn
     credential_id = _base64url_decode(body['rawId'])
-    passkey = Passkey.objects.select_related('user').get(credential_id=credential_id)
-    verification = verify_authentication_response(
-        credential=body,
-        expected_challenge=expected_challenge,
-        expected_rp_id=settings.RP_ID,
-        expected_origin=settings.APP_ORIGIN,
-        credential_public_key=bytes(passkey.public_key),
-        credential_current_sign_count=passkey.sign_count,
-        require_user_verification=False,
-    )
-    # Update counter
-    passkey.sign_count = verification.new_sign_count
+    try:
+        passkey = Passkey.objects.select_related('user').get(credential_id=credential_id)
+    except Passkey.DoesNotExist:
+        return JsonResponse({'error': 'Passkey not found'}, status=404)
+    try:
+        verification = verify_authentication_response(
+            credential=body,
+            expected_challenge=expected_challenge,
+            expected_rp_id=settings.RP_ID,
+            expected_origin=settings.APP_ORIGIN,
+            credential_public_key=bytes(passkey.public_key),
+            credential_current_sign_count=passkey.sign_count,  # sign_count, not counter
+            require_user_verification=False,
+        )
+        # py_webauthn v2: raises an exception on failure — there is NO .verified attribute.
+        # Do NOT write: if not verification.verified — that attribute does not exist.
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+    passkey.sign_count = verification.new_sign_count  # new_sign_count, not newCounter
     passkey.last_used_at = timezone.now()
     passkey.save()
-    # Issue session for passkey.user
     login(request, passkey.user)
     return JsonResponse({'verified': True})
 ```
@@ -512,6 +637,13 @@ def passkey_auth_verify(request):
 ---
 
 ## Spring Boot + java-webauthn-server (Full Example)
+
+> ⚠️ **PRODUCTION REQUIREMENT — persistence**: Spring Security's default
+> passkey configuration and many Spring Boot examples use in-memory repositories
+> (`PublicKeyCredentialUserEntityRepository`, `UserCredentialRepository`). These
+> lose ALL registered credentials and passkey user entities on application restart.
+> Always implement database-backed repositories (JPA/JDBC) before deploying.
+> Never ship in-memory passkey storage to production.
 
 ### Maven dependency
 
@@ -791,6 +923,12 @@ public class PasskeyController {
 ---
 
 ## Go + Gin + go-webauthn/webauthn (Full Example)
+
+> ⚠️ **PRODUCTION REQUIREMENT — persistence**: The `ChallengeStore` in these
+> examples must be backed by Redis or a database with TTL support. In-memory
+> maps are lost on process restart and do not work across multiple containers.
+> Also note: go-webauthn is currently `v0` — the API has breaking changes
+> between minor versions. Consult the CHANGELOG before upgrading.
 
 ### Install
 
@@ -1074,6 +1212,13 @@ func SetupRoutes(r *gin.Engine, h *PasskeyHandler, authMiddleware gin.HandlerFun
 
 ## Laravel + web-auth/webauthn-lib (PHP)
 
+> ⚠️ **PREREQUISITE — sodium extension**: Without the PHP `sodium` extension (or
+> `paragonie/sodium-compat` as a pure-PHP fallback), EdDSA Curve 25519 passkeys
+> registered during enrollment silently fail signature validation at login time.
+> The user sees "passkey failed" with no useful error.
+> Verify: `php -m | grep sodium`
+> Fix: `apt-get install php-sodium` or `composer require paragonie/sodium-compat`
+
 ### Install
 
 ```bash
@@ -1296,6 +1441,162 @@ PASSKEY_CHALLENGE_TTL=300              # seconds
 ```
 
 ---
+
+---
+
+## Passkey Naming — PATCH Endpoint
+
+The `name` column exists in the passkeys table from day one (see `references/db-schema.md`).
+Two responsibilities:
+1. **Set default name at registration** — resolve from AAGUID using FIDO MDS (see security-checklist.md §F.2)
+2. **Allow user rename** — `PATCH /auth/passkey/:id` with ownership check
+
+### NestJS (TypeScript)
+
+```typescript
+// passkey.controller.ts
+@Patch(':id')
+@UseGuards(JwtAuthGuard)
+async rename(
+  @Param('id') id: string,
+  @Body('name') name: string,
+  @Request() req,
+): Promise<{ id: string; name: string }> {
+  return this.passkeyService.rename(req.user.id, id, name);
+}
+
+// passkey.service.ts
+async rename(userId: string, passkeyId: string, name: string) {
+  const trimmed = name?.trim();
+  if (!trimmed) throw new BadRequestException('Name cannot be empty');
+  if (trimmed.length > 100) throw new BadRequestException('Name must be 100 characters or fewer');
+
+  // Filter by both id AND userId — prevents horizontal privilege escalation
+  const passkey = await this.prisma.passkey.findFirst({
+    where: { id: passkeyId, userId },
+  });
+  if (!passkey) throw new NotFoundException('Passkey not found');
+
+  return this.prisma.passkey.update({
+    where: { id: passkeyId },
+    data: { name: trimmed },
+    select: { id: true, name: true },
+  });
+}
+```
+
+### Express (TypeScript)
+
+```typescript
+// routes/passkey.ts
+router.patch('/:id', authMiddleware, async (req, res) => {
+  const { name } = req.body;
+  const trimmed = name?.trim();
+
+  if (!trimmed) return res.status(400).json({ error: 'Name cannot be empty' });
+  if (trimmed.length > 100) return res.status(400).json({ error: 'Name too long' });
+
+  const passkey = await prisma.passkey.findFirst({
+    where: { id: req.params.id, userId: req.user.id },
+  });
+  if (!passkey) return res.status(404).json({ error: 'Not found' });
+
+  const updated = await prisma.passkey.update({
+    where: { id: req.params.id },
+    data: { name: trimmed },
+    select: { id: true, name: true },
+  });
+  res.json(updated);
+});
+```
+
+### Django (Python)
+
+```python
+# views.py
+@login_required
+def rename_passkey(request, passkey_id):
+    if request.method != 'PATCH':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    import json
+    body = json.loads(request.body)
+    name = body.get('name', '').strip()
+
+    if not name:
+        return JsonResponse({'error': 'Name cannot be empty'}, status=400)
+    if len(name) > 100:
+        return JsonResponse({'error': 'Name must be 100 characters or fewer'}, status=400)
+
+    # Filter by both id AND user — ownership enforced here
+    passkey = get_object_or_404(Passkey, pk=passkey_id, user=request.user)
+    passkey.name = name
+    passkey.save(update_fields=['name'])
+    return JsonResponse({'id': str(passkey.id), 'name': passkey.name})
+
+# urls.py — add alongside other passkey routes
+path('auth/passkey/<uuid:passkey_id>/', rename_passkey),
+```
+
+### FastAPI (Python)
+
+```python
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, constr
+
+router = APIRouter(prefix="/auth/passkey")
+
+class RenameRequest(BaseModel):
+    name: constr(min_length=1, max_length=100, strip_whitespace=True)
+
+@router.patch("/{passkey_id}")
+async def rename_passkey(
+    passkey_id: str,
+    body: RenameRequest,
+    current_user = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Passkey).where(Passkey.id == passkey_id, Passkey.user_id == current_user.id)
+    )
+    passkey = result.scalar_one_or_none()
+    if not passkey:
+        raise HTTPException(status_code=404, detail="Passkey not found")
+
+    passkey.name = body.name
+    await db.commit()
+    return {"id": str(passkey.id), "name": passkey.name}
+```
+
+### Setting Default Name at Registration
+
+Call this immediately after a successful `verifyRegistrationResponse()` and before storing the credential:
+
+```typescript
+// aaguid-resolver.ts — uses the helper from security-checklist.md §F.2
+import { getProviderNameFromMds } from './aaguid-mds';
+
+export async function resolvePasskeyName(aaguid: string | null | undefined): Promise<string> {
+  if (!aaguid) return 'Passkey';
+  return getProviderNameFromMds(aaguid);  // returns 'Passkey' if unrecognized
+}
+
+// In registerVerify handler:
+const name = await resolvePasskeyName(registrationInfo.aaguid);
+await prisma.passkey.create({
+  data: {
+    userId: req.user.id,
+    credentialId: Buffer.from(registrationInfo.credential.id, 'base64url'),
+    publicKey: registrationInfo.credential.publicKey,
+    counter: BigInt(registrationInfo.credential.counter),
+    deviceType: registrationInfo.credentialDeviceType,
+    backedUp: registrationInfo.credentialBackedUp,
+    transports: body.response.transports ?? [],
+    aaguid: registrationInfo.aaguid ?? null,
+    name,  // ← AAGUID-resolved default; user can rename later
+  },
+});
+```
 
 > For the canonical passkey table schema (SQL, Prisma, TypeORM, SQLAlchemy,
 > Hibernate, Eloquent, ActiveRecord, and MongoDB), see `references/db-schema.md`.

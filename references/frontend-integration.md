@@ -659,3 +659,300 @@ useEffect(() => {
   });
 }, []);
 ```
+
+---
+
+## Design System Adaptation (required before writing any UI)
+
+Passkey UI must not look like a foreign component. Before writing any passkey
+component, inspect the existing codebase to identify the design system.
+
+### Detection — what to look for
+
+```bash
+# Check package.json for component libraries
+grep -E '"(@mui|@chakra-ui|@shadcn|antd|bootstrap|@mantine|primereact|primevue|vuetify|@angular/material|daisyui)"' package.json
+
+# Check for Tailwind
+grep -l "tailwind" tailwind.config.* postcss.config.* 2>/dev/null
+
+# Find existing button/card components to understand naming conventions
+find src -name "Button.*" -o -name "Card.*" -o -name "Modal.*" | grep -v node_modules | head -10
+```
+
+### Adaptation rules
+
+| Detected system | Use for passkey buttons | Use for passkey cards | Use for modals |
+|---|---|---|---|
+| MUI | `<Button variant="contained">` | `<Card>` + `<CardContent>` | `<Dialog>` |
+| shadcn/ui | `<Button>` | `<Card>` + `<CardContent>` | `<Dialog>` |
+| Chakra UI | `<Button colorScheme="blue">` | `<Box>` + `<Stack>` | `<Modal>` |
+| Ant Design | `<Button type="primary">` | `<Card>` | `<Modal>` |
+| Bootstrap | `<button class="btn btn-primary">` | `<div class="card">` | `<div class="modal">` |
+| Mantine | `<Button variant="filled">` | `<Card>` | `<Modal>` |
+| Tailwind (no lib) | Use existing utility class patterns from sign-in page | Match existing card patterns | Match existing modal patterns |
+
+**When no design system exists** (raw CSS or CSS modules): copy the exact class
+names and markup structure from the sign-in page's existing form buttons and inputs.
+
+### What to inspect before coding
+
+1. Open the sign-in page (`/login`, `/signin`, or equivalent)
+2. Note the exact component and class used for the primary action button
+3. Note how errors are shown (inline red text? toast? banner?)
+4. Note how loading states work (spinner inside button? disabled + spinner overlay?)
+5. Open Account Settings (or any settings page) and note the card/section layout
+6. Use these patterns verbatim for all passkey UI
+
+---
+
+## Framework-Specific Patterns and Anti-Patterns
+
+### React
+
+**Recommended pattern: custom hook**
+
+```typescript
+// hooks/usePasskey.ts
+export function usePasskey() {
+  const [passkeys, setPasskeys] = useState<Passkey[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const register = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { startRegistration } = await import('@simplewebauthn/browser');
+      const optionsRes = await fetch('/auth/passkey/register/challenge', { method: 'POST', ... });
+      const options = await optionsRes.json();
+      const credential = await startRegistration({ optionsJSON: options });
+      const verifyRes = await fetch('/auth/passkey/register/verify', {
+        method: 'POST',
+        body: JSON.stringify(credential),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!verifyRes.ok) throw new Error('Verification failed');
+      await refresh();
+    } catch (e) {
+      setError(getPasskeyErrorMessage(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const rename = useCallback(async (id: string, name: string) => { ... }, []);
+  const remove = useCallback(async (id: string) => { ... }, []);
+  const refresh = useCallback(async () => { ... }, []);
+
+  return { passkeys, loading, error, register, rename, remove, refresh };
+}
+```
+
+**Anti-patterns to avoid:**
+- Calling `startRegistration()` directly in `onClick` without a loading guard — causes double-fire in React StrictMode
+- Storing challenge or credential response in state — challenges are server-side only
+- Using `useEffect` with no cleanup for the conditional UI `startAuthentication` call — causes memory leaks on unmount
+- Sharing a single `loading` state between background autofill and the explicit button — disables the button while the browser waits indefinitely
+
+**React — Two Loading States (required for sign-in page)**
+
+The conditional UI promise is long-lived — it resolves only when the user picks
+a passkey from the autofill dropdown. If one `loading` flag covers both the
+background autofill and the explicit button, the button is permanently disabled.
+
+```typescript
+// hooks/usePasskeySignIn.ts
+export function usePasskeySignIn() {
+  const [autofillPending, setAutofillPending] = useState(false); // background — does NOT block button
+  const [loading, setLoading] = useState(false);                 // explicit button only
+  const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Start conditional UI on mount — runs silently in background
+  useEffect(() => {
+    const ac = new AbortController();
+    abortRef.current = ac;
+    (async () => {
+      try {
+        setAutofillPending(true);
+        const { startAuthentication } = await import('@simplewebauthn/browser');
+        const optionsRes = await fetch('/auth/passkey/authenticate/challenge', { method: 'POST' });
+        const options = await optionsRes.json();
+        const credential = await startAuthentication({ optionsJSON: options, useBrowserAutofill: true, signal: ac.signal });
+        await verifyAndNavigate(credential);
+      } catch (err: any) {
+        if (err.name !== 'AbortError') console.info('Conditional UI:', err.name);
+        // AbortError is expected cleanup — never show to user
+      } finally {
+        setAutofillPending(false);
+      }
+    })();
+    return () => ac.abort(); // cancel on unmount
+  }, []);
+
+  // Explicit button handler — abort conditional UI first, then start modal
+  const signInWithPasskey = async () => {
+    abortRef.current?.abort(); // REQUIRED: browser allows only one active WebAuthn request
+    abortRef.current = null;
+    setLoading(true);
+    setError(null);
+    try {
+      const { startAuthentication } = await import('@simplewebauthn/browser');
+      const optionsRes = await fetch('/auth/passkey/authenticate/challenge', { method: 'POST' });
+      const options = await optionsRes.json();
+      const credential = await startAuthentication({ optionsJSON: options }); // no autofill
+      await verifyAndNavigate(credential);
+    } catch (err: any) {
+      if (err.name === 'NotAllowedError') setError('Cancelled — you can try again any time.');
+      else if (err.name === 'InvalidStateError') setError('A passkey already exists on this device.');
+      else setError('Something went wrong. Try again or use your password.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Button: disabled only on explicit loading, NOT on autofillPending
+  // <Button disabled={loading} onClick={signInWithPasskey}>Sign in with a passkey</Button>
+  return { signInWithPasskey, loading, error };
+}
+```
+
+**MUI — PasskeyList: fix `<div> cannot be a descendant of <p>`**
+
+MUI `ListItemText` renders its `secondary` slot as `<p>` by default. `<Chip>`
+renders as `<div>` — a `<div>` inside a `<p>` is invalid HTML and triggers a
+React hydration warning. Fix with `secondaryTypographyProps={{ component: 'div' }}`:
+
+```typescript
+<ListItemText
+  primary={passkey.name || 'Passkey'}
+  secondary={
+    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>
+      <Chip size="small" label={passkey.deviceType} />
+      <Chip size="small" label={passkey.backedUp ? 'Synced' : 'Device-bound'} />
+    </Box>
+  }
+  primaryTypographyProps={{ fontWeight: 700 }}
+  secondaryTypographyProps={{ component: 'div' }}  // prevents <div> inside <p>
+/>
+```
+
+### Vue 3
+
+**Recommended pattern: composable**
+
+```typescript
+// composables/usePasskey.ts
+export function usePasskey() {
+  const passkeys = ref<Passkey[]>([]);
+  const loading = ref(false);
+  const error = ref<string | null>(null);
+
+  const register = async () => { ... };
+  const rename = async (id: string, name: string) => { ... };
+  const remove = async (id: string) => { ... };
+
+  return { passkeys, loading, error, register, rename, remove };
+}
+```
+
+**Anti-patterns to avoid:**
+- Forgetting `onUnmounted` cleanup for the conditional UI `startAuthentication` abort controller
+- Using `options API` (`this.$`) for passkey state when the rest of the app uses Composition API
+- Importing `@simplewebauthn/browser` at the top level in a Nuxt app — the package uses browser APIs unavailable during SSR; always use dynamic import inside `onMounted`
+
+**Nuxt / Vue 3 — dynamic import pattern (required for SSR)**
+
+```typescript
+// composables/usePasskey.ts
+export function usePasskey() {
+  const isSupported = ref(false);
+  const loading = ref(false);
+  const error = ref<string | null>(null);
+
+  onMounted(async () => {
+    // Dynamic import prevents SSR errors — @simplewebauthn/browser uses window/navigator
+    const { browserSupportsWebAuthn } = await import('@simplewebauthn/browser');
+    isSupported.value = browserSupportsWebAuthn();
+  });
+
+  const register = async () => {
+    loading.value = true;
+    error.value = null;
+    try {
+      const { startRegistration } = await import('@simplewebauthn/browser');
+      const options = await $fetch('/api/v1/auth/passkey/register/challenge/', { method: 'POST' });
+      const credential = await startRegistration({ optionsJSON: options });
+      await $fetch('/api/v1/auth/passkey/register/verify/', { method: 'POST', body: credential });
+    } catch (e: any) {
+      error.value = e.name === 'NotAllowedError'
+        ? 'Passkey creation was cancelled.'
+        : 'Unable to create passkey. Please try again.';
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const authenticate = async () => {
+    loading.value = true;
+    error.value = null;
+    try {
+      const { startAuthentication } = await import('@simplewebauthn/browser');
+      const options = await $fetch('/api/v1/auth/passkey/authenticate/challenge/', { method: 'POST' });
+      const credential = await startAuthentication({ optionsJSON: options });
+      await $fetch('/api/v1/auth/passkey/authenticate/verify/', { method: 'POST', body: credential });
+      await navigateTo('/dashboard');  // always navigate after successful verify
+    } catch (e: any) {
+      error.value = e.name === 'NotAllowedError'
+        ? 'Cancelled — you can try again any time.'
+        : 'Sign-in failed. Try another method.';
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  return { isSupported, loading, error, register, authenticate };
+}
+```
+
+### Angular
+
+**Recommended pattern: injectable service**
+
+```typescript
+@Injectable({ providedIn: 'root' })
+export class PasskeyService {
+  private passkeys$ = new BehaviorSubject<Passkey[]>([]);
+  passkeys = this.passkeys$.asObservable();
+
+  register(): Observable<void> { ... }
+  rename(id: string, name: string): Observable<Passkey> { ... }
+  remove(id: string): Observable<void> { ... }
+  refresh(): Observable<Passkey[]> { ... }
+}
+```
+
+**Anti-patterns to avoid:**
+- Not unsubscribing from passkey observables in `ngOnDestroy` — use `takeUntilDestroyed()` (Angular 16+) or `destroy$` subject
+- Importing `@simplewebauthn/browser` at the module level in an SSR-enabled app — use dynamic `import()` inside `isPlatformBrowser()` guard
+
+### Next.js App Router
+
+**Anti-patterns to avoid:**
+- Marking the entire settings page `'use client'` to avoid the WebAuthn check — instead, split: keep the page as a Server Component and extract passkey UI into a separate `PasskeySection` client component
+- Not handling the hydration mismatch from `isWebAuthnSupported()` returning `false` on the server — use `useState(false)` initialized in `useEffect`
+
+```typescript
+// Correct: hydration-safe WebAuthn support check
+const [supported, setSupported] = useState(false);
+useEffect(() => {
+  setSupported(typeof window !== 'undefined' && !!window.PublicKeyCredential);
+}, []);
+```
+
+### SvelteKit
+
+**Anti-patterns to avoid:**
+- Importing `@simplewebauthn/browser` at the top level in a `+page.svelte` file — use `onMount` with dynamic import
+- Using `$page.data` (server load data) for passkey list without a `invalidate()` call after register/delete

@@ -250,10 +250,48 @@ providers appear and existing ones change AAGUIDs across versions.
 | `POST /auth/passkey/authenticate/verify` | Public | Issues token on success |
 | `GET /auth/passkey/list` | Auth required | Filter by userId always |
 | `DELETE /auth/passkey/:id` | Auth required | Verify ownership before delete |
+| `PATCH /auth/passkey/:id` | Auth required | Verify ownership before update; validate name |
 
 - [ ] Rate limiting on **all** passkey endpoints (especially challenge generation — prevent DDoS)
-- [ ] CSRF protection on state-changing endpoints (register, delete) — **required for session-cookie auth only**; Bearer-token (JWT) APIs are not vulnerable to CSRF because browsers do not auto-attach Authorization headers
+- [ ] CSRF protection on state-changing endpoints (register, delete, rename) — **required for session-cookie auth only**; Bearer-token (JWT) APIs are not vulnerable to CSRF because browsers do not auto-attach Authorization headers
 - [ ] Validate `Content-Type: application/json` on all passkey routes
+
+### G.2 — Passkey Rename Endpoint Security
+
+```typescript
+// PATCH /auth/passkey/:id — ownership check is mandatory
+async renamePasskey(userId: string, passkeyId: string, name: string) {
+  // 1. Validate name before touching the DB
+  const trimmed = name?.trim();
+  if (!trimmed || trimmed.length === 0) {
+    throw new BadRequestException('Passkey name cannot be empty');
+  }
+  if (trimmed.length > 100) {
+    throw new BadRequestException('Passkey name must be 100 characters or fewer');
+  }
+
+  // 2. Filter by BOTH id AND userId — prevents horizontal privilege escalation.
+  //    An attacker who knows another user's passkey UUID cannot rename it.
+  const passkey = await db.passkey.findFirst({
+    where: { id: passkeyId, userId },
+  });
+  if (!passkey) {
+    throw new NotFoundException('Passkey not found');  // same error for not-found and not-owned
+  }
+
+  // 3. Update
+  return db.passkey.update({
+    where: { id: passkeyId },
+    data: { name: trimmed },
+  });
+}
+```
+
+- [ ] `PATCH /auth/passkey/:id` filters by **both** `id` AND `userId` before updating
+- [ ] Name validated server-side: non-empty after trim, max 100 chars
+- [ ] Returns generic 404 (not 403) when passkey not found or not owned — avoids leaking ID existence
+- [ ] Rename endpoint is rate-limited at the same level as list/delete
+- [ ] ORM parameterization handles SQL injection for the name field — do not interpolate directly into raw SQL
 
 ---
 
