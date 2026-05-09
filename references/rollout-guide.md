@@ -22,9 +22,77 @@ Sources:
 
 ---
 
-## Strategy A: Gradual Rollout (Recommended for most developers)
+## Strategy A: Rapid Rollout (Recommended for consumer-facing apps)
+
+Active promotion to maximize passkey adoption quickly. FIDO Alliance research
+shows that without active promotion, enrollment rates stay in the low single digits —
+Gradual alone rarely exceeds 5% adoption without a deliberate campaign.
+
+**Choose Rapid if:** you have a public-facing sign-up flow, an active user base
+with meaningful DAU, or an executive-level goal to reduce password-related costs.
+
+### Phase 1 — Identify Needs
+- Document current auth methods, costs (password reset rate, support tickets, cart abandonment)
+- Define success metrics: enrollment rate target (e.g. 30% in 90 days), sign-in success rate, fallback rate
+- No production changes yet
+
+### Phase 2 — Research and Screen
+- Select library (see library-matrix.md)
+- Study the 2 required FIDO design patterns: Create/Manage + Sign In with a Passkey
+- One sprint proof-of-concept (internal employees only, not users)
+- Marketing + communications plan:
+  - Email campaign: "Your account now supports passkeys"
+  - In-app banner: "Sign in faster with passkeys"
+  - Help center article explaining passkeys in plain language
+  - Customer support team training on passkey questions
+
+### Phase 3 — Concept and Prototype
+- Implement backend endpoints (registration + authentication + credential management + rename)
+- Add passkey section to Account Settings UI (hero + cards with naming + delete + rename)
+- Internal QA: test on Chrome, Safari, Firefox, iOS, Android, Windows Hello
+- Resolve cross-browser inconsistencies before launch
+
+### Phase 4 — Build and Test
+- Add Conditional UI (`autocomplete="username webauthn"` + `useBrowserAutofill`)
+- Add explicit "Sign in with passkey" button
+- During account creation: passkey as primary option, password as fallback
+- During sign-in: modal upgrade prompt (once per user, dismissible, persistent dismiss stored server-side)
+- During password reset: "Create a passkey instead of a new password"
+- Dashboard: enrollment progress metrics
+- Write integration tests (registration flow, authentication flow, rename, delete)
+- Reference troubleshooting guide for known ecosystem issues
+
+### Phase 5 — Release and Optimize
+- Launch announcement (email/push/banner)
+- Monitor: passkey enrollment rate, sign-in success rate, fallback usage rate
+- Track: password usage decline, cart abandonment improvement, support ticket reduction
+- Iterate UX based on data
+
+**Rapid UX scope — all of the following are required:**
+- Account Settings: create hero + passkey cards (with naming + rename + delete)
+- Sign-in page: conditional UI + "Sign in with passkey" button + password fallback
+- Post-login upgrade nudge (dismissible, never re-shown after user dismisses)
+- Account creation passkey prompt
+- Password reset passkey offering
+- `/.well-known/passkey-endpoints` JSON file (enables Google Password Manager upgrade prompts)
+- Metrics instrumentation: enrollment events, sign-in success/failure events
+
+**Rapid rollout team:**
+- Product Manager (lead)
+- 2-3 Engineers (frontend + backend + DevOps)
+- UX Designer
+- Content writer (passkey copy)
+- Marketing (email/push notifications)
+- Customer support (trained on passkey FAQs)
+
+---
+
+## Strategy B: Gradual Rollout (For developer tools, internal apps, small teams)
 
 Users organically self-discover passkeys in Account Settings. No campaign required.
+
+**Choose Gradual if:** this is a developer-facing tool, an internal app, a small
+team project, or a first passkey proof-of-concept before a larger rollout.
 
 ### Phase 1 — Identify Needs
 - Document current auth methods, costs, and performance metrics
@@ -37,15 +105,15 @@ Users organically self-discover passkeys in Account Settings. No campaign requir
 - One sprint proof-of-concept (internal employees only, not users)
 
 ### Phase 3 — Concept and Prototype
-- Implement backend endpoints (registration + authentication + credential management)
-- Add passkey section to Account Settings UI
+- Implement backend endpoints (registration + authentication + credential management + rename)
+- Add passkey section to Account Settings UI (hero + cards with naming + delete + rename)
 - Internal QA: test on Chrome, Safari, Firefox, iOS, Android, Windows Hello
 - Resolve cross-browser inconsistencies before launch
 
 ### Phase 4 — Build and Test
 - Add Conditional UI (`autocomplete="username webauthn"` + `useBrowserAutofill`)
 - Add explicit "Sign in with passkey" button as alternative
-- Write integration tests (registration flow, authentication flow, delete flow)
+- Write integration tests (registration flow, authentication flow, rename, delete)
 - Reference troubleshooting guide for known ecosystem issues
 
 ### Phase 5 — Release and Optimize
@@ -54,48 +122,13 @@ Users organically self-discover passkeys in Account Settings. No campaign requir
 - Monitor: passkey enrollment rate, sign-in success rate, fallback usage rate
 - After stable: add optional patterns (post-login nudge, recovery flow, cross-device)
 
-**Gradual UX scope — Initial launch (required):**
-- Account Settings: create hero + passkey cards + delete
+**Gradual UX scope — Initial launch (all required):**
+- Account Settings: create hero + passkey cards (with naming + rename + delete)
 - Sign-in page: conditional UI + "Sign in with passkey" button + password fallback
 
 **Gradual UX scope — Post-launch (optional):**
 - One-time post-login upgrade prompt (dismissible, never shown again)
 - Passkey creation during account recovery
-
----
-
-## Strategy B: Rapid Rollout (High-traffic / consumer products)
-
-Active promotion to maximize passkey adoption quickly.
-
-### Additional phases vs Gradual
-
-**Phase 3 extended — Marketing + communications plan:**
-- Email campaign: "Your account now supports passkeys"
-- In-app banner: "Sign in faster with passkeys"
-- Help center article explaining passkeys in plain language
-- Customer support team training on passkey questions
-- Social media announcement
-
-**Phase 4 extended — Aggressive UX:**
-- During account creation: passkey as primary option, password as fallback
-- During sign-in: modal upgrade prompt (once per user, dismissible)
-- During password reset: "Create a passkey instead of a new password"
-- Dashboard: enrollment progress metrics
-
-**Phase 5 extended — Metrics and iteration:**
-- Passkey enrollment rate target (e.g., 30% in 90 days)
-- Sign-in success rate target (>95%)
-- Monitor: password usage decline, cart abandonment improvement, support ticket reduction
-- Iterate UX based on data
-
-**Rapid rollout team:**
-- Product Manager (lead)
-- 2-3 Engineers (frontend + backend + DevOps)
-- UX Designer
-- Content writer (passkey copy)
-- Marketing (email/push notifications)
-- Customer support (trained on passkey FAQs)
 
 ---
 

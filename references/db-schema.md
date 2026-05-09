@@ -336,6 +336,12 @@ alembic upgrade head
 
 ## Django ORM
 
+> **Naming consistency**: py_webauthn v2 returns `verification.new_sign_count`
+> at authentication time. The model field, serializer fields, and all view
+> references MUST all use `sign_count`. Renaming it to `counter` (to match
+> Prisma/TypeORM implementations) without updating every view and serializer
+> causes `UndefinedColumn: column passkeys.counter does not exist` at runtime.
+
 ```python
 # passkeys/models.py
 from django.db import models
@@ -351,12 +357,14 @@ class Passkey(models.Model):
     )
     credential_id = models.BinaryField(unique=True, null=False)
     public_key = models.BinaryField(null=False)
-    counter = models.BigIntegerField(default=0)
+    # Use sign_count — py_webauthn returns verification.new_sign_count at auth time.
+    # Do NOT rename this to 'counter' without updating ALL views, serializers, and queries.
+    sign_count = models.BigIntegerField(default=0)
     device_type = models.CharField(max_length=32, default='singleDevice')
     backed_up = models.BooleanField(default=False)
-    transports = models.JSONField(default=list)
+    transports = models.JSONField(default=list)  # stored as plain strings ["internal","hybrid"]
     aaguid = models.CharField(max_length=36, blank=True, null=True)
-    name = models.CharField(max_length=100, blank=True, null=True)
+    name = models.CharField(max_length=100, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
 
@@ -367,8 +375,48 @@ class Passkey(models.Model):
     def __str__(self):
         return f"Passkey({self.name or 'unnamed'}) for {self.user}"
 
-# In your User model — add one line:
-# passkey_user_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+# In your User model — add passkey_user_id using the 3-step migration below
+# (do NOT add it in a single step — see migration warning)
+```
+
+> ⚠️ **Django migration warning — `passkey_user_id` must use a 3-step migration**
+>
+> Adding `passkey_user_id = models.UUIDField(default=uuid.uuid4, unique=True)` in
+> a single step fails when the table has existing rows: Django evaluates
+> `default=uuid.uuid4` **once** at migration time and uses the same UUID for every
+> existing row, violating the UNIQUE constraint.
+>
+> Use this 3-step migration instead:
+
+```python
+# migrations/xxxx_add_passkey_user_id.py
+from django.db import migrations, models
+import uuid
+
+class Migration(migrations.Migration):
+    dependencies = [('accounts', '0001_initial')]  # adjust app name and dependency
+
+    operations = [
+        # Step 1: add as nullable, no UNIQUE yet
+        migrations.AddField(
+            model_name='user',
+            name='passkey_user_id',
+            field=models.UUIDField(null=True, blank=True),
+        ),
+        # Step 2: populate existing rows with unique UUIDs at the DB level
+        # gen_random_uuid() is built into PostgreSQL 13+.
+        # For older PostgreSQL: CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; then use uuid_generate_v4()
+        migrations.RunSQL(
+            sql='UPDATE "auth_user" SET passkey_user_id = gen_random_uuid() WHERE passkey_user_id IS NULL',
+            reverse_sql=migrations.RunSQL.noop,
+        ),
+        # Step 3: add NOT NULL and UNIQUE constraints now that all rows have distinct values
+        migrations.AlterField(
+            model_name='user',
+            name='passkey_user_id',
+            field=models.UUIDField(default=uuid.uuid4, unique=True, editable=False),
+        ),
+    ]
 ```
 
 ```bash

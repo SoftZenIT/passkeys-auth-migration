@@ -70,18 +70,56 @@ All copy tested in FIDO Alliance usability research (2022–2024).
 ## Passkey card (one per credential in Account Settings)
 
 ### Synced passkey
-> Passkey · [Provider: Google Password Manager / iCloud Keychain / 1Password]
+> **[User-assigned name or AAGUID default, e.g. "iCloud Keychain"]**
+> Google Password Manager / iCloud Keychain / 1Password  ← muted subtitle
 > Created [date] · Last used [date] · Synced across your devices
 
 ### Device-bound passkey
-> Passkey · [Provider name]
+> **[Name]**
+> [Provider name]
 > Created [date] · Last used [date] · Saved to this device only
+
+### Card actions
+> [Rename]  [Remove]
 
 ### Delete confirmation
 > Remove this passkey?
 > You will no longer be able to sign in with this passkey. You can still sign
 > in with your password or another passkey.
 > [Remove]  [Cancel]
+
+---
+
+## Passkey naming
+
+### Rename button (on passkey card)
+> Rename
+
+### Inline rename input placeholder
+> e.g. Work MacBook, iPhone 15
+
+### Inline rename actions
+> [Save]  [Cancel]
+
+### Post-creation naming prompt (optional — shown after successful passkey creation)
+
+#### Headline
+> Name this passkey (optional)
+
+#### Body
+> Give it a name so you can tell it apart from your other passkeys.
+
+#### Input (pre-filled with AAGUID-resolved name)
+> [iCloud Keychain                              ]
+
+#### Actions
+> [Save name]  [Skip]
+
+### Rename success (aria-live announcement, not a visible toast)
+> Passkey renamed.
+
+### Rename error (inline, below input)
+> Name cannot be empty. Please enter a name or press Cancel.
 
 ---
 

@@ -342,3 +342,106 @@ then try again."
 3. Blame the system, not the user — "This may be a temporary issue"
 4. Always give at least one fallback path — never leave user stuck
 5. Consistent structure: Title -> Brief explanation -> Next step -> Actions -> Support link
+
+---
+
+## Problem 9: Django / py_webauthn specific failures
+
+### 9a: `bytes is not JSON serializable` on challenge endpoint
+**Cause:** `options.challenge` from py_webauthn is a `bytes` object. Django sessions use JSON serialization which cannot handle `bytes`.
+**Fix:**
+```python
+# Store:
+request.session['key'] = base64.b64encode(options.challenge).decode()
+# Retrieve:
+expected = base64.b64decode(request.session.pop('key'))
+```
+
+### 9b: `'str' object has no attribute 'value'` on register/challenge (user has existing passkeys)
+**Cause:** `PublicKeyCredentialDescriptor(transports=...)` requires enum values; the `JSONField` stores plain strings.
+**Fix:**
+```python
+from webauthn.helpers.structs import AuthenticatorTransport
+transports=[AuthenticatorTransport(t) for t in (pk.transports or [])]
+```
+
+### 9c: `'VerifiedAuthentication' object has no attribute 'verified'`
+**Cause:** py_webauthn v2 raises an exception on failure. There is no `.verified` attribute on any return value.
+**Fix:** Remove `if not verification.verified`. Wrap the call in `try/except` — success means the line after the call was reached.
+
+### 9d: `could not create unique index passkey_user_id_key` on migrate
+**Cause:** Single-step migration evaluates `default=uuid.uuid4` once; all existing rows receive the same UUID.
+**Fix:** Use the 3-step migration in `references/db-schema.md` §Django ORM: add nullable → `RunSQL gen_random_uuid()` → `AlterField NOT NULL UNIQUE`.
+
+### 9e: `column passkeys.counter does not exist`
+**Cause:** The model defines `sign_count` but a serializer, view, or queryset references `counter`.
+**Fix:** Use `sign_count` everywhere to match py_webauthn's `verification.new_sign_count`. Run `grep -r "counter" apps/passkeys/` to find any remaining mismatches.
+
+### 9f: 403 CSRF Failed on challenge endpoints
+**Cause:** Public passkey endpoints are called before the user has a CSRF cookie. Django/DRF enforces CSRF on session-backed requests.
+**Fix:** Add `@csrf_exempt` to `passkey_auth_challenge` and `passkey_auth_verify`. Registration endpoints (called by an already-logged-in user) keep CSRF.
+
+---
+
+## Problem 10: NestJS / SimpleWebAuthn specific failures
+
+### 10a: 400 `property publicKeyAlgorithm should not exist` on /register/verify
+**Cause:** `ValidationPipe` with `forbidNonWhitelisted: true` rejects valid SimpleWebAuthn browser v13+ fields (`publicKeyAlgorithm`, `publicKey`, `authenticatorData`) before `verifyRegistrationResponse()` runs.
+**Fix:** Add these three fields to the `RegisterVerifyDto` as `@IsOptional()`, or apply `@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false }))` on that endpoint only.
+
+### 10b: 500 `Do not know how to serialize a BigInt`
+**Cause:** Raw Prisma row returned from a passkey endpoint; `counter: BigInt` cannot be serialized by `JSON.stringify`.
+**Fix:** Return a response DTO from all passkey endpoints. Exclude `counter` from `prisma.passkey.findMany({ select: { ... } })`.
+
+### 10c: Explicit passkey button is disabled while autofill is pending
+**Cause:** A single `loading` state flag covers both the background conditional UI promise and the explicit button action.
+**Fix:** Use two separate states: `autofillPending` (does NOT disable the button) and `loading` (only set during explicit button interaction). See the two-loading-states pattern in `references/frontend-integration.md`.
+
+### 10d: `NotAllowedError` when clicking explicit button while conditional UI is pending
+**Cause:** The browser allows only one active WebAuthn request. Conditional UI must be aborted before starting a modal request.
+**Fix:** Call `abortController.abort()` (or `WebAuthnAbortService.cancelCeremony()`) before calling `startAuthentication()` without autofill.
+
+---
+
+## Problem 11: Frontend package import fails (`@simplewebauthn/browser`)
+
+**Symptom:** `Failed to resolve import "@simplewebauthn/browser"` in Vite/Nuxt.
+
+**Cause:** Package installed in backend directory or monorepo root, not the frontend app directory.
+
+**Fix:**
+```bash
+cd <frontend-directory>   # NOT the backend or monorepo root
+npm install @simplewebauthn/browser
+# Confirm it is in dependencies, not devDependencies:
+grep simplewebauthn package.json
+```
+
+For Nuxt/SSR apps, always use dynamic import inside `onMounted` to avoid SSR errors:
+```typescript
+onMounted(async () => {
+  const { startAuthentication } = await import('@simplewebauthn/browser');
+  // use startAuthentication here
+});
+```
+
+---
+
+## Problem 12: Common logic and security flaws (all stacks)
+
+### 12a: Backend trusting a frontend "success" signal
+**Cause:** Server accepts a client-sent `verified: true` flag without verifying the cryptographic signature server-side.
+**Rule:** The server MUST always call `verifyRegistrationResponse()` or `verifyAuthenticationResponse()`. Never accept a client-side success flag.
+
+### 12b: `userHandle` not decoded before DB lookup
+**Cause:** `body.response.userHandle` is a base64url string. Using it raw for a DB lookup always fails.
+**Fix (Node.js):** `Buffer.from(userHandle, 'base64url').toString()`
+**Fix (Python):** `base64.urlsafe_b64decode(userHandle + '==').decode()`
+
+### 12c: Showing `NotAllowedError` as a red error state
+**Cause:** >95% of `NotAllowedError` events are the user dismissing the browser prompt — expected behavior.
+**Fix:** Show neutral copy: "Cancelled — you can try again any time." Distinguish with `err.name === 'NotAllowedError'`. `AbortError` and `InvalidStateError` in conditional UI flows should also be caught silently.
+
+### 12d: In-memory challenge/credential store in production (Spring Boot, Go)
+**Cause:** Default example code uses in-memory maps or Spring's default in-memory repositories that disappear on restart.
+**Fix:** Implement a database or Redis-backed store before deploying. See `references/backend-integration.md` §Spring Boot and §Go warnings.
