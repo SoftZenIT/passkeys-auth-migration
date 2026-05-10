@@ -22,7 +22,16 @@
         "BigInt(newCounter) conversion shown when writing counter updates after verification",
         "Challenge deletion in both success and catch blocks (replay protection)",
         "Backward compatibility: existing JWT login preserved",
-        "Unguarded registration endpoint would fail with 401 (auth boundary check)"
+        "Unguarded registration endpoint would fail with 401 (auth boundary check)",
+        "v1.1.0: NestJS DTO accepts SimpleWebAuthn v13+ extra fields (publicKeyAlgorithm, publicKey, authenticatorData) — does NOT use forbidNonWhitelisted: true that would strip them",
+        "v1.1.0: Prisma BigInt counter is converted with Number() before any JSON.stringify or response serialization",
+        "v1.1.0: Plan mode is activated before code (EnterPlanMode in Claude Code, or output complete plan + 'Waiting for approval')",
+        "v1.1.0: Phase 0 scans for design system (tailwindcss, @mui/*, @shadcn/ui, chakra-ui, antd, mantine, etc.)",
+        "v1.1.0: Phase 0 scans for i18n libraries (i18next, react-i18next, next-intl, react-intl, etc.)",
+        "v1.1.0: Implementation Completeness Checklist presented at end of Phase 3",
+        "v1.1.0: PATCH /auth/passkey/:id endpoint included for renaming passkeys",
+        "v1.1.0: Default passkey name resolved from AAGUID at registration time",
+        "v1.1.0: Install verification step (npm install / package check) runs before backend curl checkpoint"
       ]
     },
     {
@@ -43,7 +52,13 @@
         "List and delete endpoints require @login_required decorator",
         "Delete endpoint validates ownership: user can only delete own passkeys",
         "Attempting to delete another user's passkey returns 403 Forbidden",
-        "Existing argon2/password login preserved"
+        "Existing argon2/password login preserved",
+        "v1.1.0: Challenge stored as base64-encoded string in session (request.session['passkey_challenge'] = base64.b64encode(options.challenge).decode()) — raw bytes do NOT survive Django JSON session serialization",
+        "v1.1.0: transports stored as strings are converted to AuthenticatorTransport enum in excludeCredentials (e.g. AuthenticatorTransport(t) for t in pk.transports)",
+        "v1.1.0: verify_authentication_response handled with try/except — no .verified attribute access (py_webauthn raises on failure)",
+        "v1.1.0: passkey_user_id migration is 3-step (add nullable column → RunSQL UPDATE auth_user SET passkey_user_id = gen_random_uuid() WHERE passkey_user_id IS NULL → alter to NOT NULL UNIQUE)",
+        "v1.1.0: @csrf_exempt applied to public passkey endpoints (challenge + verify) since browsers do not send CSRF tokens for these XHR calls",
+        "v1.1.0: Field name is sign_count (matches py_webauthn return value), not counter — mixing causes UndefinedColumn at runtime"
       ]
     },
     {
@@ -70,7 +85,9 @@
         "Challenge removed from session after verification (both success and failure)",
         "signatureCount incremented by exactly 1 AFTER verification completes",
         "signatureCount increment happens BEFORE response sent to client",
-        "Challenge removal and counter update sequenced (no stale state between operations)"
+        "Challenge removal and counter update sequenced (no stale state between operations)",
+        "v1.1.0: Production warning that InMemoryRegistrationStorage is non-persistent — must replace with JPA-backed CredentialRepository before going live",
+        "v1.1.0: Counter update happens BEFORE returning response (no race window where two parallel requests could pass replay check)"
       ]
     },
     {
@@ -90,7 +107,10 @@
         "Form includes field: whether passkey endpoints already exist (yes/no/unknown)",
         "Backend context template responses are carried into backend plan generation",
         "Backend plan is generated after context collection (not frontend plan first)",
-        "Response explains that backend plan must come before frontend plan"
+        "Response explains that backend plan must come before frontend plan",
+        "v1.1.0: Dynamic import of @simplewebauthn/browser inside onMounted() — avoids SSR errors since the package references window/document",
+        "v1.1.0: useFetch / $fetch composable used for API calls (Nuxt convention) — not raw fetch()",
+        "v1.1.0: navigateTo('/dashboard') or equivalent redirect after successful auth verify (Nuxt routing API, not window.location)"
       ]
     },
     {
@@ -111,7 +131,9 @@
         "SvelteKit example with autocomplete='username webauthn' on input element",
         "Separate repos acknowledged in plan",
         "Frontend plan explicitly notes: 'Wait for backend endpoint confirmation before deployment'",
-        "Separate repos acknowledged — frontend plan waits for backend endpoint confirmation"
+        "Separate repos acknowledged — frontend plan waits for backend endpoint confirmation",
+        "v1.1.0: sodium PHP extension required for EdDSA (Ed25519) passkey validation — must be enabled in php.ini",
+        "v1.1.0: Production warning if sodium is not enabled — error message guidance ('extension=sodium' in php.ini, then restart php-fpm)"
       ]
     },
     {
@@ -141,7 +163,10 @@
         "React usePasskey hook state includes: {loading, error, passkeys}",
         "Conditional UI with useBrowserAutofill in React startAuthentication() call",
         "startAuthentication({ useBrowserAutofill: true }) in authentication flow",
-        "Cross-device authenticatorAttachment check included (optional platform vs. cross-device)"
+        "Cross-device authenticatorAttachment check included (optional platform vs. cross-device)",
+        "v1.1.0: React: separate autofillPending and loading states (not single 'loading') — autofillPending tracks the silent conditional UI request, loading tracks explicit button click",
+        "v1.1.0: React: AbortController ref aborts the conditional UI request when the explicit 'Sign in with passkey' button is clicked — prevents UI lockup",
+        "v1.1.0: React: passkey logic extracted into a usePasskey custom hook (not inlined in component)"
       ]
     },
     {
@@ -203,6 +228,64 @@
         "Virtual authenticator tests use retry logic: max 3 attempts, 1s between retries",
         "Timeout set to 10-15 seconds per test (virtual authenticator slower than hardware)",
         "Test verifies: attempting auth with deleted challenge returns 'Challenge not found' error"
+      ],
+      "should_trigger": true
+    },
+    {
+      "id": 11,
+      "prompt": "Add passkeys to my Next.js 15 app. We use next-intl for translations and have locale files in src/locales/ (en.json, fr.json, es.json). I have a NestJS backend already wired up with the basic /auth endpoints. Don't break the existing i18n setup — every user-visible string in the app goes through the t() function.",
+      "expected_output": "Skill triggers, Phase 0 detects next-intl + locale files (sets i18n_detected = true), Phase 2 plan includes Step 9 — Internationalization with the passkeys.* key catalog, and generated component code uses t('passkeys.createButton') etc. instead of hardcoded English strings. references/i18n-guide.md is loaded.",
+      "assertions": [
+        "Plan presented before code",
+        "Phase 0 detects next-intl in dependencies and sets i18n_detected = true",
+        "Phase 0 detects locale files under src/locales/ (en.json, fr.json, es.json)",
+        "references/i18n-guide.md is loaded or referenced",
+        "Phase 2 plan includes Step 9 — Internationalization",
+        "Generated component code uses t('passkeys.<key>') — NOT hardcoded English strings",
+        "Key namespace passkeys.* is used consistently across all generated code",
+        "Required keys catalog presented covering at minimum: passkeys.createButton, passkeys.signInButton, passkeys.heroHeadline, passkeys.heroBenefit, passkeys.cardSyncedLabel, passkeys.cardDeviceOnlyLabel, passkeys.deleteConfirm, passkeys.renameLabel, passkeys.errors.*",
+        "Locale JSON additions shown for at least en.json (other locales noted as needing translation)",
+        "Error messages (NotAllowedError, InvalidStateError, etc.) also use t() — not hardcoded",
+        "Error keys nested under passkeys.errors.* (not flat at top level)",
+        "Plan notes: passkeys.* namespace is kept separate from app's existing keys"
+      ],
+      "should_trigger": true
+    },
+    {
+      "id": 12,
+      "prompt": "My passkey implementation works but users complain they can't tell their passkeys apart. They have a MacBook and an iPhone — both passkeys show up as 'iCloud Keychain' in their account settings. Add the ability to rename existing passkeys, and use a sensible default name on creation. Stack is NestJS + Prisma + React with MUI.",
+      "expected_output": "Skill triggers. Plan adds PATCH /auth/passkey/:id endpoint with auth + ownership check + name validation. Frontend gets inline rename UI (pencil icon → input → Save/Cancel). Default name is resolved from AAGUID at registration time (e.g. 'iCloud Keychain', 'Google Password Manager', falling back to 'Passkey'). FIDO MDS referenced for AAGUID-to-provider mapping. Rename endpoint added to security checklist and completeness checklist.",
+      "assertions": [
+        "Plan presented before code",
+        "PATCH /auth/passkey/:id endpoint added to the backend plan",
+        "Endpoint requires auth guard (e.g. @UseGuards(JwtAuthGuard))",
+        "Ownership check enforced: filter by both id AND userId before update — not just id",
+        "Server-side name validation: non-empty, max 100 chars, trimmed",
+        "Name field is sanitized / escaped before storage (or ORM handles it explicitly)",
+        "Default passkey name resolved from AAGUID at registration time (e.g. 'iCloud Keychain', 'Google Password Manager')",
+        "AAGUID-to-name fallback: 'Passkey' when AAGUID is unrecognized",
+        "FIDO MDS (Metadata Service) referenced for AAGUID-to-provider mapping",
+        "Frontend: inline rename UI pattern — pencil/edit icon → text input → Save/Cancel buttons",
+        "MUI Button + TextField + IconButton used (matches the project's existing component library)",
+        "Rename endpoint included in the Implementation Completeness Checklist",
+        "Security checklist mentions: rename endpoint must verify ownership before update",
+        "Rename endpoint is rate-limited (same as list/delete endpoints)"
+      ],
+      "should_trigger": true
+    },
+    {
+      "id": 13,
+      "prompt": "My passkey auth verify endpoint returns 401 every time. The browser ceremony completes successfully (no client-side error), but my backend can't find the user matching the credential. I'm on NestJS + Prisma + Postgres with @simplewebauthn/server. The credential was registered fine and exists in the passkeys table.",
+      "expected_output": "Skill triggers (troubleshooting context recognized). references/troubleshooting.md loaded. Diagnoses the userHandle base64url encoding issue: SimpleWebAuthn returns userHandle from the authentication response as a base64url-encoded string, which must be decoded before being used as a DB lookup key (the stored passkey_user_id is the raw UUID/string). Provides the fix: Buffer.from(userHandle, 'base64url').toString() before Prisma lookup.",
+      "assertions": [
+        "Skill triggers for the passkey debugging scenario",
+        "references/troubleshooting.md is referenced or loaded",
+        "Diagnoses: userHandle from authentication response is base64url-encoded — must be decoded before DB lookup",
+        "Fix code shown: Buffer.from(userHandle, 'base64url').toString() (or equivalent atob-like decode) before Prisma findUnique",
+        "Mentions userHandle in the auth response is the stored passkey_user_id, NOT user.id",
+        "Distinguishes from rpID mismatch (rpID gives a different symptom — verification rejects on the server side, not user lookup)",
+        "Distinguishes from credential lookup by credentialId (mentions both lookup paths exist)",
+        "Notes that sometimes the lookup should go via credentialId first, with userHandle as a fallback for discoverable credentials"
       ],
       "should_trigger": true
     }
