@@ -46,7 +46,14 @@ Vue 3 · React · Angular · Svelte · SvelteKit · Nuxt 3 · Next.js · Remix
 npx skills add softzenit/passkeys-auth-migration
 ```
 
-Or manually — copy the `passkeys-auth-migration/` folder to your skills directory:
+Or manually:
+
+```bash
+git clone https://github.com/softzenit/passkeys-auth-migration.git /tmp/passkeys-auth-migration
+cp -r /tmp/passkeys-auth-migration/passkeys-auth-migration .agents/skills/
+```
+
+The expected layout:
 
 ```
 your-project/
@@ -61,11 +68,17 @@ your-project/
 The skill activates on prompts like:
 
 - "Add passkeys to my app"
+- "Integrate WebAuthn into my [framework] project"
 - "Migrate to passwordless authentication"
 - "Implement WebAuthn / FIDO2"
 - "Replace password login with passkeys"
 - "Add biometric login"
 - "How do I support passkeys in [framework]?"
+- "My passkey autofill isn't showing up"
+- "Rename passkeys in account settings"
+- "Add AAGUID-based passkey names"
+- "Debug passkey verify endpoint returning 401"
+- "Test passkey endpoints without hardware"
 
 ## Compatible agents
 
@@ -79,10 +92,16 @@ For each project, the skill produces:
 - Database migration (additive — never removes existing auth)
 - Registration endpoints (`/auth/passkey/register/challenge` + `/verify`)
 - Authentication endpoints (`/auth/passkey/authenticate/challenge` + `/verify`)
-- Passkeys management endpoints (list + delete)
+- Passkeys management endpoints (list, delete, **rename**)
+- AAGUID-based default passkey names resolved at registration time
 - Frontend components: conditional UI sign-in, account settings with passkey
-  cards, hero prompt, cross-device interstitial
+  cards, hero prompt, cross-device interstitial, inline rename UI
+- i18n support: detects your translation library and generates a key catalog
+  (`passkeys.*` namespace) so UI copy is never hardcoded in English
+- Design system adaptation: detects Tailwind, MUI, shadcn/ui, or plain CSS
+  and generates components that match your existing stack
 - Security review
+- Implementation completeness checklist before handoff
 - Rollout guidance (FIDO Gradual or Rapid strategy)
 
 ## Sources and standards
@@ -107,13 +126,15 @@ Built on:
 
 Issues and pull requests welcome at the GitHub repository. When contributing:
 
-1. Run the eval suite: `npm run test:evals`
+1. Add or update assertions in `evals/evals.json` to cover new behavior
 2. Verify new stack support against `references/library-matrix.md`
 3. For new frameworks, add schema to `references/db-schema.md`
 4. Update the supported stacks table in this README
 
-The local eval runner validates `evals/evals.json`, trigger routing, reference
-coverage, and representative fixture scenarios under `evals/fixtures/`.
+Evals are run via the skill-creator toolchain. Each assertion in
+`evals/evals.json` is graded against outputs produced by a subagent running
+the skill on the corresponding prompt — see `evals/evals.json` for the full
+list and assertion format.
 
 ## License
 

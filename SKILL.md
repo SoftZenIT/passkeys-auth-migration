@@ -20,7 +20,7 @@ description: >
 license: MIT
 metadata:
   author: Sadjad Ousmane
-  version: "1.0.0"
+  version: "1.1.0"
   tags: authentication passkeys webauthn fido2 security passwordless migration
 compatibility: >
   Works with any coding agent that supports file reading and terminal commands
@@ -73,7 +73,7 @@ The "plan before code" rule applies when you will write implementation code.
 
 ## Gotchas — Read before anything else
 
-These are non-obvious mistakes agents make without being told:
+Watch out for these non-obvious pitfalls before writing any code:
 
 - **rpID must be domain only** — no protocol, no port, no path. `example.com`
   works. `https://example.com`, `example.com:3000`, `example.com/app` all fail
