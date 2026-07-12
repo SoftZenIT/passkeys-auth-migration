@@ -138,7 +138,7 @@ Elixir's `wax` library handles both registration and authentication verification
 
 | Library                                              | Minimum version | Runtime requirement  | Breaking change from                                                                                                                                                                                |
 | ---------------------------------------------------- | --------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@simplewebauthn/server` + `@simplewebauthn/browser` | **v11**         | Node 20+, ES modules | v9 to v10: `startRegistration({ optionsJSON })` · v10 to v11: `verifyAuthenticationResponse` uses `credential: { id, publicKey }` instead of `authenticator: { credentialID, credentialPublicKey }` |
+| `@simplewebauthn/server` + `@simplewebauthn/browser` | **v13** (latest v13.3.x) | Node 20+, ES modules | v9 to v10: `startRegistration({ optionsJSON })` · v10 to v11: `verifyAuthenticationResponse` uses `credential: { id, publicKey }` instead of `authenticator: { credentialID, credentialPublicKey }` · v11 to v13: `@simplewebauthn/types` retired (types now ship inside server/browser), `AuthenticatorDevice` renamed `WebAuthnCredential`; v13 adds `preferredAuthenticatorType` (WebAuthn hints), `useAutoRegister` (conditional create), and `verifyMDSBlob()` for FIDO MDS / AAGUID naming |
 | `@passwordless-id/webauthn`                          | **v2**          | Node 19+             | v1 to v2: full API redesign                                                                                                                                                                         |
 | `py_webauthn`                                        | **v2**          | Python 3.9+          | v1 to v2: class-based API replaced with functions                                                                                                                                                   |
 | `java-webauthn-server`                               | **v2**          | Java 17+             | v1 to v2: credential storage API changed                                                                                                                                                            |
@@ -150,3 +150,9 @@ Elixir's `wax` library handles both registration and authentication verification
 > cause silent or confusing failures — for example, a project using SimpleWebAuthn
 > v10 will break on `verifyAuthenticationResponse` because the `credential` argument
 > did not exist until v11; v10 expects `authenticator` with different property names.
+> Likewise, v11 lacks `useAutoRegister` and `preferredAuthenticatorType`, so the
+> conditional-create and hints patterns in this skill require v13.
+
+All minimum versions align with **WebAuthn Level 3** (W3C Candidate
+Recommendation, 2026-01-13) — the umbrella spec for conditional create, the
+Signal API, hints, Related Origin Requests, and JSON serialization helpers.

@@ -179,6 +179,21 @@ At the end of registration flow, offer passkey creation before password:
 - "Start with a passkey — no password needed"
 - If user declines: collect password as fallback
 
+### Automatic Passkey Upgrade (Conditional Create)
+Silently create a passkey right after a successful password sign-in — the
+zero-friction upgrade path (Safari 18+, Chrome 136+). See
+`references/frontend-integration.md` §Conditional Create for the code.
+- **No interstitial before**: the whole point is zero added friction. Never
+  show a dialog asking permission to auto-create.
+- **Passive confirmation after**: a toast ("A passkey was added to your
+  account") plus an optional confirmation email with a manage link. The OS may
+  also show its own notification.
+- **Never block the post-login redirect** on the upgrade attempt — fire and
+  forget; the user should land on their destination at normal speed.
+- **Silent failure is normal** (unsupported browser, no saved password,
+  provider declined): show nothing. The user never asked for this flow, so it
+  must never produce an error state.
+
 ### Passkey Management UI — Multiple Passkey Types
 When user has both synced passkeys and security-key-bound passkeys:
 - Group by type: "Synced passkeys" and "Security keys"
@@ -212,6 +227,8 @@ Users can have multiple passkeys across different devices and providers. Meaning
 **When names matter most**: When a user has passkeys from both iCloud Keychain and Google Password Manager, the default AAGUID names are already meaningful. Rename becomes most valuable for hardware keys or when two passkeys come from the same provider.
 
 **Design pattern**: Show the user-assigned name as the primary card title. Show the AAGUID-resolved provider name as a subtitle below (smaller, muted text). This way users get context (provider) even after they rename.
+
+**Nickname vs. picker name**: the rename above only changes *your* passkey card. The username shown inside the browser's passkey picker belongs to the credential manager — after a server-side username/displayName change, sync it with `signalCurrentUserDetails` (see `references/security-checklist.md` §L2).
 
 ### Design System Compliance
 Passkey UI must match the app's existing visual language — not introduce new patterns.

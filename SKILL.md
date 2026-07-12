@@ -61,6 +61,12 @@ Classify the user's request before Phase 0:
   integration tests for endpoint auth and ownership, E2E tests with Chrome CDP
   virtual authenticators in Playwright or Puppeteer, and HTTPS test
   configuration with `RP_ID=localhost` and `APP_ORIGIN`.
+- **Adoption & advanced features (passkeys already work)** — for automatic
+  passkey upgrades (conditional create), a smart sign-in button (immediate UI
+  mode), passkey-based encryption (PRF), iframe embedding, or multi-domain
+  passkeys, load `references/frontend-integration.md` (§Conditional Create,
+  §Immediate UI Mode) or `references/advanced-features.md` and enhance the
+  existing implementation — do not regenerate a migration plan.
 - **General information only** — do not activate this skill for broad passkey
   security comparisons, OAuth, SSO, or unrelated authentication questions.
   This includes general passkey security/comparison explainers that do not ask
@@ -101,7 +107,10 @@ Watch out for these non-obvious pitfalls before writing any code:
 - **Signal orphaned credentials** — when authentication fails with a 404 (credential
   not found), call `PublicKeyCredential.signalUnknownCredential({ rpId, credentialId })`
   so the passkey provider removes the stale entry. Without this, users see phantom
-  passkeys that always fail.
+  passkeys that always fail. Likewise, after a server-side username/displayName
+  change, call `signalCurrentUserDetails` (Chrome 132+, Safari 26) so the passkey
+  picker doesn't show stale names — fire-and-forget; see
+  `references/security-checklist.md` §L2 for the WebKit caveat.
 - **UV flag non-compliance in some providers** — 1Password Extension, Bitwarden
   Extension, KeepassXC, Proton Pass Extension, and Okta Personal Extension all
   set the `uv` flag to `true` without actually performing user verification. Never
@@ -123,10 +132,25 @@ Watch out for these non-obvious pitfalls before writing any code:
   your enroll/manage pages are, enabling upgrade prompts after password sign-in.
   `/.well-known/webauthn` (JSON, `Content-Type: application/json`) is the
   WebAuthn Level 3 Related Origin Requests file — it lets one passkey work across
-  up to five domains (e.g. `example.com` and `app.example.com`). Both files live
-  at the rpID domain root. Most apps only need `passkey-endpoints`; add `webauthn`
-  only if you have a genuine multi-domain deployment. Chrome 128+, Safari 18
-  support ROR. Firefox has no implementation timeline as of 2026.
+  up to five domains: `{"origins": ["https://example.co.uk", "https://example-app.com"]}`.
+  Both files live at the rpID domain root. Most apps only need `passkey-endpoints`;
+  add `webauthn` only for a genuine multi-domain deployment. ROR is supported in
+  Chrome/Edge 128+, Safari 18+, and Firefox 152+ (May 2026 — the last browser gap,
+  now closed). Full example: `references/advanced-features.md` §Related Origin Requests.
+- **Conditional create upgrades password users silently** — right after a password
+  sign-in, feature-detect `getClientCapabilities().conditionalCreate` and attempt
+  `startRegistration({ optionsJSON, useAutoRegister: true })` (Safari 18+, Chrome 136+
+  desktop / 142+ Android). Do not fire on every login. Chrome honors it only within
+  ~5 minutes of sign-in, requires the password saved in the credential manager, and
+  Google Password Manager makes the final call. Catch `InvalidStateError`; silent
+  failure is normal — never show an error for a flow the user didn't start.
+  See `references/frontend-integration.md` §Conditional Create.
+- **Immediate UI mode is `uiMode: 'immediate'` — not `mediation: 'immediate'`** —
+  Chrome 149+ shipped the stable syntax; the origin-trial `mediation` syntax no
+  longer triggers immediate mode. `NotAllowedError` means "no locally-available
+  credential" — silently fall back to the regular form. Chrome-only as of mid-2026;
+  treat as progressive enhancement. See `references/frontend-integration.md`
+  §Immediate UI Mode.
 - **NestJS `register/verify` DTO must allow SWA v13+ fields** — SimpleWebAuthn
   browser v13+ sends `publicKeyAlgorithm`, `publicKey`, and `authenticatorData`
   in the registration response (valid W3C Level 3 fields). A `ValidationPipe`
@@ -496,6 +520,13 @@ STEP 5b — Google Password Manager upgrade signal (recommended for Rapid)
     "manage": "https://yourdomain.com/account/passkeys" }
   Host at RP_ID domain, not a subdomain.
 
+STEP 5c — Conditional create: automatic passkey upgrade (required for Rapid;
+  optional for Gradual)
+  After password sign-in: if getClientCapabilities().conditionalCreate is true,
+  fire-and-forget startRegistration({ optionsJSON, useAutoRegister: true })
+  Passive toast on success; fully silent on failure; never block the redirect
+  See references/frontend-integration.md §Conditional Create
+
 STEP 6 — Error handling
   NotAllowedError: "Cancelled. Try again anytime." (user dismissed or timed out)
   InvalidStateError: "A passkey already exists on this device."
@@ -694,6 +725,7 @@ rollout was selected.
 - [ ] `InvalidStateError` → passkey already exists message
 - [ ] `SecurityError` → caught and logged only, never shown to users
 - [ ] 404 from server → `signalUnknownCredential()` called before showing fallback
+- [ ] If the app has a username/displayName edit flow: `signalCurrentUserDetails()` fired (try/catch, never awaited-blocking) after profile updates
 - [ ] FIDO passkey icon used in all passkey UI
 - [ ] `aria-live="polite"` on result messages; `role="alert"` on errors
 - [ ] All passkey buttons have visible text labels
@@ -705,6 +737,7 @@ rollout was selected.
 - [ ] Password login coexists with no regressions
 
 **Rapid rollout only**
+- [ ] Conditional create attempted after password sign-in (feature-detected, silent-fail, `excludeCredentials` populated, `source` tagged for metrics)
 - [ ] Post-login upgrade nudge: one-time, dismissible, dismissal persisted server-side
 - [ ] Account creation flow includes passkey creation prompt
 - [ ] Password reset / account recovery flow offers passkey creation
@@ -779,6 +812,7 @@ Guide the user toward Stage 3 (Partial Prevention) as the next milestone.
 | `references/troubleshooting.md`      | Phase 3/4 — debugging integration issues                       |
 | `references/messaging-guidelines.md` | Phase 2 — error copy and promotion copy                        |
 | `references/rollout-guide.md`        | Phase 4 — planning the rollout                                 |
+| `references/advanced-features.md`    | On demand — PRF/E2E encryption, largeBlob, portability (CXP/CXF), iframe embedding, Related Origin Requests |
 | `assets/ux-copy-templates.md`        | Phase 2 — writing passkey UI copy and labels                   |
 | `assets/env-template.md`             | Phase 1 — configuring RP environment variables                 |
 

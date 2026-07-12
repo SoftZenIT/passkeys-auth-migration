@@ -399,11 +399,37 @@ if (PublicKeyCredential.signalAllAcceptedCredentials) {
     allAcceptedCredentialIds: allCredentials.map(c => c.credentialId),
   });
 }
+
+// After the user changes their username or display name on your server,
+// sync the provider's copy on their next visit (browser-side, RP origin):
+if (PublicKeyCredential.signalCurrentUserDetails) {
+  try {
+    // Fire-and-forget: Safari 26 has a known WebKit bug (#298951) where this
+    // promise may never resolve — never await-block UI or sign-in flow on it.
+    void PublicKeyCredential.signalCurrentUserDetails({
+      rpId,
+      userId: userIdBase64url,        // same base64url encoding as above
+      name: user.username,            // what the passkey picker lists
+      displayName: user.displayName,
+    });
+  } catch { /* hygiene call — non-critical, never surface to the user */ }
+}
 ```
+
+Support: `signalUnknownCredential` / `signalAllAcceptedCredentials` /
+`signalCurrentUserDetails` — Chrome 132+, Safari 26+ (see WebKit caveat above);
+feature-detect and skip silently elsewhere.
+
+**Do not confuse the two rename concepts:** the passkey *nickname* users edit
+via your `PATCH /auth/passkey/:id` endpoint (§G.2) lives in **your** database
+only. The `name`/`displayName` shown inside the **passkey picker** comes from
+the credential manager and can only be updated with `signalCurrentUserDetails`
+after a server-side username/displayName change.
 
 Why this matters: Without signal API calls, deleted server-side credentials
 remain in the user's password manager and cause confusing failed sign-in
-attempts. The Signal API lets you proactively clean up provider state.
+attempts, and renamed accounts keep stale usernames in the picker. The Signal
+API lets you proactively keep provider state in sync.
 
 ---
 

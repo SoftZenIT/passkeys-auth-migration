@@ -8,6 +8,13 @@ The frontend is responsible for:
 3. Providing FIDO-compliant UX (see ux-guidelines.md)
 4. Handling errors gracefully and offering fallback
 
+**Library-free alternative:** the examples use `@simplewebauthn/browser`, but
+WebAuthn Level 3 ships spec-level JSON helpers in the browser —
+`PublicKeyCredential.parseCreationOptionsFromJSON()` /
+`parseRequestOptionsFromJSON()` to consume server options, and
+`credential.toJSON()` to serialize responses. Teams avoiding a dependency can
+use these directly with `navigator.credentials.create()/get()`.
+
 ---
 
 ## Feature Detection
@@ -30,7 +37,7 @@ export const isPlatformAuthAvailable = async (): Promise<boolean> => {
 // Two APIs exist; prefer getClientCapabilities() in newer browsers.
 export const isConditionalUIAvailable = async (): Promise<boolean> => {
   if (!isWebAuthnSupported()) return false;
-  // Modern API (Chrome 128+, Safari 18+): getClientCapabilities()
+  // Modern API (Chrome/Edge 133+, Firefox 135+, Safari 17.4+): getClientCapabilities()
   if (typeof PublicKeyCredential.getClientCapabilities === 'function') {
     try {
       const caps = await PublicKeyCredential.getClientCapabilities();
@@ -42,6 +49,27 @@ export const isConditionalUIAvailable = async (): Promise<boolean> => {
   // Legacy API (Chrome 108+, Safari 16+): isConditionalMediationAvailable()
   return typeof PublicKeyCredential.isConditionalMediationAvailable === 'function' &&
     PublicKeyCredential.isConditionalMediationAvailable();
+};
+
+// Can the browser silently upgrade a password sign-in to a passkey?
+// (conditional create — Safari 18+, Chrome 136+ desktop / 142+ Android)
+export const isConditionalCreateAvailable = async (): Promise<boolean> => {
+  if (!isWebAuthnSupported()) return false;
+  if (typeof PublicKeyCredential.getClientCapabilities !== 'function') return false;
+  try {
+    const caps = await PublicKeyCredential.getClientCapabilities();
+    return caps.conditionalCreate === true;
+  } catch { return false; }
+};
+
+// Can the browser run an immediate-mode get()? (smart sign-in button, Chrome 149+)
+export const isImmediateGetAvailable = async (): Promise<boolean> => {
+  if (!isWebAuthnSupported()) return false;
+  if (typeof PublicKeyCredential.getClientCapabilities !== 'function') return false;
+  try {
+    const caps = await PublicKeyCredential.getClientCapabilities();
+    return caps.immediateGet === true;
+  } catch { return false; }
 };
 ```
 
@@ -152,6 +180,62 @@ const authenticateWithPasskey = async (): Promise<void> => {
   }
 };
 ```
+
+---
+
+## Immediate UI Mode — Smart Sign-In Button (Chrome 149+)
+
+An upgrade of the explicit button above: one adaptive "Sign in" button that
+jumps straight to the passkey prompt when a locally-available credential
+exists, and falls back silently when none does.
+
+> ⚠️ **Syntax changed at stable launch.** Chrome 149 shipped this as
+> `uiMode: 'immediate'` on `navigator.credentials.get()`. The origin-trial
+> syntax `mediation: 'immediate'` **no longer triggers immediate mode** — code
+> using it silently gets a normal modal ceremony instead.
+
+```typescript
+const signInSmart = async (): Promise<void> => {
+  // isImmediateGetAvailable() from §Feature Detection (caps.immediateGet)
+  if (!(await isImmediateGetAvailable())) {
+    return showLoginForm();  // standard flow for every other browser
+  }
+
+  try {
+    const optionsJSON = await fetch('/auth/passkey/authenticate/challenge', { method: 'POST' })
+      .then(r => r.json());
+
+    const credential = await navigator.credentials.get({
+      publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(optionsJSON),
+      uiMode: 'immediate',
+    } as CredentialRequestOptions);
+
+    await verifyOnServer((credential as PublicKeyCredential).toJSON());
+  } catch (err: any) {
+    if (err.name === 'NotAllowedError') {
+      // No local passkey → reveal the password form. Conditional UI
+      // (autofill) is already armed, so a phone-synced passkey still
+      // appears in the username-field dropdown. No modal, no error.
+      showLoginForm();
+      return;
+    }
+    showError('Passkey sign-in failed. Try another method.');
+  }
+};
+```
+
+### Behaviour and constraints
+
+- **Chrome 149+ only as of mid-2026** — ship as progressive enhancement; every
+  other browser takes the explicit-button / conditional UI path above.
+- **Silent rejection**: no local credential → instant `NotAllowedError`, no
+  browser UI shown. Reveal your fallback; never show an error message.
+- **Locally-available credentials only**: immediate mode suppresses the
+  cross-device/hybrid (QR code) options — users whose only passkey lives on
+  their phone will land in your fallback path.
+- **Single-ceremony rule still applies**: abort any pending conditional UI
+  request (AbortController) before firing the immediate `get()` — see the
+  SKILL.md AbortController gotcha.
 
 ---
 
@@ -590,6 +674,75 @@ After successful password login, offer passkey creation once (dismissible):
   </dialog>
 </template>
 ```
+
+---
+
+## Conditional Create — Automatic Passkey Upgrade (Zero Friction)
+
+The automatic sibling of the prompt above: right after a successful password
+sign-in, silently create a passkey in the background — no dialog, no user
+action, no interruption. This is the highest-leverage adoption pattern
+(required for Rapid rollout; the modal prompt above is the fallback for
+browsers without support).
+
+```typescript
+// Fire-and-forget immediately after password sign-in succeeds.
+// NEVER await this before the post-login redirect.
+export async function attemptPasskeyUpgrade(
+  authToken: string,
+  user: { passkeyCount: number; lastAutoUpgradeAt: string | null },
+): Promise<void> {
+  // isConditionalCreateAvailable() from §Feature Detection (caps.conditionalCreate)
+  if (!(await isConditionalCreateAvailable())) return;
+
+  // Trigger policy: attempt only when it can plausibly succeed.
+  if (user.passkeyCount > 0) return;                 // already upgraded
+  if (daysSince(user.lastAutoUpgradeAt) < 7) return; // weekly cooldown
+  // lastAutoUpgradeAt is set server-side on every attempt, success or
+  // not — so a declined upgrade isn't retried on every single login.
+
+  try {
+    const options = await fetch('/auth/passkey/register/challenge', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${authToken}` },
+    }).then(r => r.json());
+
+    // SimpleWebAuthn v13: useAutoRegister sets mediation: 'conditional' on
+    // navigator.credentials.create() — the conditional-create ceremony.
+    // Raw API equivalent: navigator.credentials.create({ publicKey, mediation: 'conditional' })
+    const { startRegistration } = await import('@simplewebauthn/browser');
+    const reg = await startRegistration({ optionsJSON: options, useAutoRegister: true });
+
+    await fetch('/auth/passkey/register/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ ...reg, source: 'conditional-create' }),  // metrics tag
+    });
+
+    showToast(t('passkeys.autoCreated'));  // passive notification AFTER success
+  } catch {
+    // Silent failure is NORMAL: unsupported provider, no saved password, too
+    // long since sign-in, provider declined, or a passkey already exists
+    // (InvalidStateError). The user never initiated this flow — never show
+    // an error state for it.
+  }
+}
+```
+
+### Constraints (why it silently no-ops)
+
+| Constraint | Detail |
+|---|---|
+| Browser support | Safari 18+ (iOS 18 / macOS 15), Chrome 136+ desktop, Chrome 142+ Android |
+| Saved password required | The browser only upgrades when the just-used password is stored in its credential manager |
+| Chrome time window | Runs only within ~5 minutes of the password sign-in; **Google Password Manager makes the final creation decision** |
+| Third-party managers | Support varies — Apple Passwords and Google Password Manager are reliable; extension-based managers often no-op |
+| `excludeCredentials` | Still mandatory in the options — prevents repeated silent upgrades from duplicating passkeys |
+
+UX rules (no interstitial before, passive confirmation after, never block the
+redirect): `references/ux-guidelines.md` §Automatic Passkey Upgrade. Backend
+notes (same endpoints, metrics tagging): `references/backend-integration.md`
+§Conditional create.
 
 ---
 

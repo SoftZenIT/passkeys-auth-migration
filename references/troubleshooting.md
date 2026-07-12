@@ -175,6 +175,11 @@ NOT reveal the specific reason (by design — to prevent fingerprinting).
 4. Another `navigator.credentials.get()` call is already pending (AbortController issue)
 5. The page lost focus during the ceremony (some browsers cancel on blur)
 6. rpID mismatch detected browser-side before server is even called
+7. The request used `uiMode: 'immediate'` and no locally-available credential
+   exists — the API rejects silently **by design**; fall back to the standard
+   flow, never show an error (see frontend-integration.md §Immediate UI Mode)
+8. The call runs inside a cross-origin iframe without Permissions-Policy /
+   `allow=` opt-in (see references/advanced-features.md §Cross-Origin Iframes)
 
 **Handling:** Always treat `NotAllowedError` as non-fatal. Show:
 > "Sign in cancelled. You can try again anytime."

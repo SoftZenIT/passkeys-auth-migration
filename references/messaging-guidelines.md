@@ -70,6 +70,31 @@ Want to set up a passkey here so you can sign in faster next time?
 [Delete]
 ```
 
+### Automatic upgrade confirmation (conditional create)
+
+Shown as a passive toast after a silent passkey upgrade succeeds — never as a
+blocking dialog. Pair with an optional confirmation email containing a manage link.
+
+```
+[Passkey icon]  A passkey was added to your account
+Next time, sign in with just your fingerprint, face, or screen lock.
+[Manage passkeys]
+```
+
+### Portability reassurance (counter the lock-in objection)
+
+Use when users or stakeholders hesitate with "what if I switch password
+managers?" — passkey transfer between managers is standardized (FIDO Credential
+Exchange; see `references/advanced-features.md` §Credential Exchange).
+
+```
+Your passkeys aren't locked in
+Passkeys work with the password manager you already use — Apple,
+Google, 1Password, and others. If you ever switch, you can move
+your passkeys along with your passwords. And you can always add
+a new passkey from any device, or sign in another way.
+```
+
 ---
 
 ## Tone Rules
