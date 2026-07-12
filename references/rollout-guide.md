@@ -56,6 +56,9 @@ with meaningful DAU, or an executive-level goal to reduce password-related costs
 - Add Conditional UI (`autocomplete="username webauthn"` + `useBrowserAutofill`)
 - Add explicit "Sign in with passkey" button
 - During account creation: passkey as primary option, password as fallback
+- After password sign-in: attempt conditional create (automatic passkey upgrade,
+  Safari 18+/Chrome 136+) — the modal nudge below becomes the fallback for
+  browsers without conditional-create support
 - During sign-in: modal upgrade prompt (once per user, dismissible, persistent dismiss stored server-side)
 - During password reset: "Create a passkey instead of a new password"
 - Dashboard: enrollment progress metrics
@@ -72,6 +75,8 @@ with meaningful DAU, or an executive-level goal to reduce password-related costs
 - Account Settings: create hero + passkey cards (with naming + rename + delete)
 - Sign-in page: conditional UI + "Sign in with passkey" button + password fallback
 - Post-login upgrade nudge (dismissible, never re-shown after user dismisses)
+- Conditional create wired after password login (feature-detected, silent-fail)
+  + a metrics event distinguishing automatic upgrades from manual creates
 - Account creation passkey prompt
 - Password reset passkey offering
 - `/.well-known/passkey-endpoints` JSON file (enables Google Password Manager upgrade prompts)
@@ -128,6 +133,8 @@ team project, or a first passkey proof-of-concept before a larger rollout.
 
 **Gradual UX scope — Post-launch (optional):**
 - One-time post-login upgrade prompt (dismissible, never shown again)
+- Conditional create after password login (silent automatic upgrade — the
+  no-popup alternative to the prompt above)
 - Passkey creation during account recovery
 
 ---

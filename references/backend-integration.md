@@ -63,6 +63,52 @@ The backend (Relying Party server) is responsible for:
 2. Client calls `navigator.credentials.get()` -> device signs challenge with private key
 3. Client calls `/auth/passkey/authenticate/verify` -> server verifies signature -> issues session/token
 
+### WebAuthn hints — steering the browser UI (Chrome 128+)
+
+`hints` is a top-level field of the options JSON (registration and
+authentication). It expresses an **ordered soft preference** for which
+authenticator UI the browser leads with — unlike `authenticatorSelection.authenticatorAttachment`,
+it never hard-blocks other authenticators. Browsers that don't support hints
+ignore the field (harmless).
+
+```jsonc
+// Raw options JSON — works with any backend:
+{
+  "challenge": "...",
+  "rp": { "id": "example.com", "name": "Example" },
+  "hints": ["security-key"],   // "security-key" | "client-device" | "hybrid"
+  ...
+}
+```
+
+- **`security-key`** — hardware keys (enterprise YubiKey fleets). Stops the
+  browser from pushing phones/QR codes at security-key users.
+- **`client-device`** — platform authenticator on this device (consumer default).
+- **`hybrid`** — phone via QR/Bluetooth (kiosk / shared-terminal scenarios).
+
+Library support:
+- **SimpleWebAuthn v13**: `generateRegistrationOptions({ ..., preferredAuthenticatorType: 'securityKey' | 'localDevice' | 'remoteDevice' })`
+  maps to `security-key` / `client-device` / `hybrid` respectively.
+- **java-webauthn-server (≤ 2.9.x)**: no native hints API — merge the `hints`
+  array into the serialized options JSON in your controller before returning it.
+- Other backends: add the field to the options JSON the same way.
+
+### Conditional create (automatic passkey upgrade) — backend implications
+
+The frontend can silently create a passkey right after a password sign-in
+(see `references/frontend-integration.md` §Conditional Create). Backend impact
+is minimal — reuse the existing registration ceremony:
+
+- **Same endpoints, same options path** — no new backend route. The request is
+  authenticated (it fires immediately after password login, so a session exists).
+- **`excludeCredentials` still mandatory** — it's what prevents repeated silent
+  upgrades from duplicating passkeys.
+- **Verification is identical** (`verifyRegistrationResponse` etc.). The
+  browser-created credential is a normal passkey.
+- **Tag the source for metrics**: accept an optional `source` field on the
+  verify request (`"conditional-create"` vs `"user-initiated"`) and store it —
+  adoption dashboards need to distinguish silent upgrades from manual creates.
+
 ---
 
 ## NestJS + Prisma + PostgreSQL (Full Example)
@@ -70,9 +116,9 @@ The backend (Relying Party server) is responsible for:
 ### Install
 
 ```bash
-npm install @simplewebauthn/server@^11   # v11+ required — verifyAuthenticationResponse API changed in v11
+npm install @simplewebauthn/server@^13   # v13+ — types bundled in (no @simplewebauthn/types), hints + conditional create support
 # @simplewebauthn/browser is for the frontend — install it there, not here
-# npm install @simplewebauthn/browser@^11
+# npm install @simplewebauthn/browser@^13
 ```
 
 ### Prisma Schema (additive — do not touch existing User model columns)

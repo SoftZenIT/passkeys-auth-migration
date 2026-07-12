@@ -85,6 +85,24 @@ async function validateSkillRouting(corpus) {
   }
 }
 
+function validateV120Features(corpus) {
+  const v120Patterns = [
+    'conditionalCreate',
+    'useAutoRegister',
+    "uiMode: 'immediate'",
+    'signalCurrentUserDetails',
+    '/.well-known/webauthn',
+    '"origins"',
+    'preferredAuthenticatorType',
+    'publickey-credentials-get',
+    'Firefox 152',
+  ];
+
+  for (const pattern of v120Patterns) {
+    check(`v1.2.0 feature coverage includes "${pattern}"`, corpus.includes(normalizeText(pattern)));
+  }
+}
+
 async function main() {
   const referenceFiles = [
     'SKILL.md',
@@ -96,6 +114,7 @@ async function main() {
     'references/testing-guide.md',
     'references/troubleshooting.md',
     'references/rollout-guide.md',
+    'references/advanced-features.md',
     'assets/env-template.md',
   ];
 
@@ -107,6 +126,7 @@ async function main() {
 
   await validateEvalsJson();
   await validateSkillRouting(corpus);
+  validateV120Features(corpus);
 
   const failed = checks.filter((item) => !item.ok);
   for (const item of checks) {
