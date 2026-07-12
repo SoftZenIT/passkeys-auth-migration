@@ -377,6 +377,11 @@ Keep passkey providers in sync with your server's credential state:
 // Using the wrong rpId causes every cleanup call to silently fail.
 const rpId = process.env.RP_ID!;
 
+// userId in the Signal API must be base64url-encoded to match the userHandle
+// the authenticator stored. If passkeyUserId is a UTF-8 string in your DB:
+const toBase64url = (s: string) =>
+  btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+
 // After 404 (credential not found during authentication):
 if (response.status === 404 && PublicKeyCredential.signalUnknownCredential) {
   await PublicKeyCredential.signalUnknownCredential({
@@ -389,13 +394,9 @@ if (response.status === 404 && PublicKeyCredential.signalUnknownCredential) {
 // After successful registration, signal current credential set:
 if (PublicKeyCredential.signalAllAcceptedCredentials) {
   const allCredentials = await getCredentialsForUser(userId);
-  // userId must be base64url-encoded to match the userHandle the authenticator stored.
-  // If passkeyUserId is stored as a UTF-8 string in your DB, encode it here:
-  const userIdBase64url = btoa(user.passkeyUserId)
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
   await PublicKeyCredential.signalAllAcceptedCredentials({
     rpId,
-    userId: userIdBase64url,
+    userId: toBase64url(user.passkeyUserId),
     allAcceptedCredentialIds: allCredentials.map(c => c.credentialId),
   });
 }
@@ -408,8 +409,8 @@ if (PublicKeyCredential.signalCurrentUserDetails) {
     // promise may never resolve — never await-block UI or sign-in flow on it.
     void PublicKeyCredential.signalCurrentUserDetails({
       rpId,
-      userId: userIdBase64url,        // same base64url encoding as above
-      name: user.username,            // what the passkey picker lists
+      userId: toBase64url(user.passkeyUserId),  // same userHandle encoding
+      name: user.username,                      // what the passkey picker lists
       displayName: user.displayName,
     });
   } catch { /* hygiene call — non-critical, never surface to the user */ }

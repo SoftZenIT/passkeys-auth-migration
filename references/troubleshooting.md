@@ -179,7 +179,7 @@ NOT reveal the specific reason (by design — to prevent fingerprinting).
    exists — the API rejects silently **by design**; fall back to the standard
    flow, never show an error (see frontend-integration.md §Immediate UI Mode)
 8. The call runs inside a cross-origin iframe without Permissions-Policy /
-   `allow=` opt-in (see references/advanced-features.md §Cross-Origin Iframes)
+   `allow=` opt-in (see references/advanced-features.md §Cross-Origin Iframe Embedding)
 
 **Handling:** Always treat `NotAllowedError` as non-fatal. Show:
 > "Sign in cancelled. You can try again anytime."
