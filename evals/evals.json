@@ -31,7 +31,8 @@
         "v1.1.0: Implementation Completeness Checklist presented at end of Phase 3",
         "v1.1.0: PATCH /auth/passkey/:id endpoint included for renaming passkeys",
         "v1.1.0: Default passkey name resolved from AAGUID at registration time",
-        "v1.1.0: Install verification step (npm install / package check) runs before backend curl checkpoint"
+        "v1.1.0: Install verification step (npm install / package check) runs before backend curl checkpoint",
+        "v1.2.0: @simplewebauthn/server installed at v13 (not v11); no separate @simplewebauthn/types dependency (retired in v13 — types ship inside server/browser packages)"
       ]
     },
     {
@@ -269,7 +270,8 @@
         "MUI Button + TextField + IconButton used (matches the project's existing component library)",
         "Rename endpoint included in the Implementation Completeness Checklist",
         "Security checklist mentions: rename endpoint must verify ownership before update",
-        "Rename endpoint is rate-limited (same as list/delete endpoints)"
+        "Rename endpoint is rate-limited (same as list/delete endpoints)",
+        "v1.2.0: Notes the nickname rename is RP-side only — if the account's username/displayName changes server-side, PublicKeyCredential.signalCurrentUserDetails is the mechanism to sync the credential manager's copy"
       ],
       "should_trigger": true
     },
@@ -288,6 +290,91 @@
         "Notes that sometimes the lookup should go via credentialId first, with userHandle as a fallback for discoverable credentials"
       ],
       "should_trigger": true
+    },
+    {
+      "id": 14,
+      "prompt": "Our users all sign in with passwords. We shipped passkey support last quarter but adoption is stuck under 5%, and product vetoed any more popups or nag banners. How do we get password users onto passkeys automatically? Stack: React + NestJS + SimpleWebAuthn.",
+      "expected_output": "Skill triggers as an adoption/enhancement request on an existing passkey implementation — no full migration plan regenerated. Recommends conditional create (automatic passkey upgrade): immediately after a successful password sign-in, feature-detect PublicKeyCredential.getClientCapabilities().conditionalCreate and call startRegistration({ optionsJSON, useAutoRegister: true }) — which sets mediation: 'conditional' on navigator.credentials.create(). Explains support (Safari 18+, Chrome 136+ desktop / 142+ Android), Chrome constraints (short window after password login, password must be saved in the credential manager, Google Password Manager makes the final call), silent-failure semantics, excludeCredentials for duplicate prevention, passive post-success notification, and a trigger policy that avoids firing on every login.",
+      "should_trigger": true,
+      "assertions": [
+        "Skill triggers for a passkey adoption/upgrade request without regenerating a full migration plan",
+        "v1.2.0: Conditional create recommended: navigator.credentials.create({ mediation: 'conditional' }) — or SimpleWebAuthn v13 startRegistration({ useAutoRegister: true }) — attempted immediately after successful password sign-in",
+        "v1.2.0: Feature detection via PublicKeyCredential.getClientCapabilities() checking conditionalCreate === true before attempting",
+        "v1.2.0: Support constraints stated: Safari 18+, Chrome 136+ desktop / 142+ Android; silent no-op elsewhere",
+        "v1.2.0: Chrome-specific constraints mentioned: works only within a few minutes of the password sign-in, the password must be saved in the credential manager, and Google Password Manager makes the final creation decision",
+        "v1.2.0: excludeCredentials still populated in the conditional-create registration options (duplicate prevention)",
+        "v1.2.0: No interstitial before the upgrade; user notified passively after success (toast/email); InvalidStateError and silent failure caught without any user-facing error state",
+        "v1.2.0: A trigger policy is proposed that does NOT fire on every login (e.g. skip users who already have a passkey, attempt cap or cooldown)"
+      ]
+    },
+    {
+      "id": 15,
+      "prompt": "Make our sign-in button smart: when the user clicks 'Sign in', if they have a passkey on this device it should go straight to the passkey prompt, otherwise show the normal login form. Most of our traffic is Chrome. Vue 3 + Express.",
+      "expected_output": "Skill triggers as a UX enhancement on an existing flow. Recommends WebAuthn immediate UI mode: navigator.credentials.get({ publicKey, uiMode: 'immediate' }) (Chrome 149+ stable). Warns that the earlier origin-trial syntax mediation: 'immediate' no longer triggers the feature. NotAllowedError when no local credentials exist is handled as a silent fallback to the regular form or conditional UI. Chrome-only as of mid-2026, so it is shipped as progressive enhancement. Notes immediate mode surfaces only locally-available credentials (suppresses cross-device/hybrid).",
+      "should_trigger": true,
+      "assertions": [
+        "Skill triggers for the smart sign-in button request",
+        "v1.2.0: uiMode: 'immediate' in navigator.credentials.get() presented as the mechanism (Chrome 149+ stable)",
+        "v1.2.0: Warns that the earlier origin-trial syntax mediation: 'immediate' no longer triggers immediate mode",
+        "v1.2.0: NotAllowedError (no local credentials) handled as silent fallback to the regular form / conditional UI — never a user-facing error",
+        "v1.2.0: Chrome-only as of mid-2026 — progressive enhancement; other browsers get the standard flow",
+        "v1.2.0: Notes immediate mode suppresses cross-device/hybrid options (locally-available credentials only)"
+      ]
+    },
+    {
+      "id": 16,
+      "prompt": "We migrated all usernames server-side (rebrand: first.last → employee IDs) and users' passkey pickers still show the old usernames. How do we fix the stale names in their password managers? Does our existing passkey rename feature cover this?",
+      "expected_output": "Skill triggers (passkey management). Explains the rename endpoint (RP-side nickname) does NOT update the credential manager; the fix is PublicKeyCredential.signalCurrentUserDetails({ rpId, userId, name, displayName }) called in the browser on the RP origin (e.g. after the user's next sign-in), with userId base64url-encoded to match the stored userHandle. Support: Chrome 132+, Safari 26 (known WebKit bug — fire-and-forget inside try/catch, never await-block the UI).",
+      "should_trigger": true,
+      "assertions": [
+        "Skill triggers for the passkey management scenario",
+        "v1.2.0: PublicKeyCredential.signalCurrentUserDetails({ rpId, userId, name, displayName }) recommended for syncing username/displayName changes to the passkey provider",
+        "v1.2.0: userId passed base64url-encoded to match the stored userHandle",
+        "v1.2.0: Distinction drawn: renaming a passkey nickname (PATCH endpoint) is RP-side only; user.name/displayName changes require the Signal API",
+        "v1.2.0: Support stated: Chrome 132+, Safari 26 — with WebKit bug caveat (promise may never resolve): wrap in try/catch, never await-block the UI on it",
+        "v1.2.0: Clarifies it is a browser-side call made on the RP origin (e.g. on the user's next visit/sign-in), not a server API"
+      ]
+    },
+    {
+      "id": 17,
+      "prompt": "We run example.co.uk and example-app.com and want one passkey to work on both domains. Does Firefox support this now? Show me the exact file I need to serve.",
+      "expected_output": "Skill triggers (multi-domain passkey configuration). Explains Related Origin Requests: serve https://example.co.uk/.well-known/webauthn with Content-Type: application/json containing {\"origins\": [\"https://example.co.uk\", \"https://example-app.com\"]}, then use rpID example.co.uk from both origins. Support: Chrome/Edge 128+, Safari 18+, and Firefox 152+ (May 2026 — the last major browser gap, now closed). Distinguishes /.well-known/webauthn from /.well-known/passkey-endpoints. Mentions the label limit (~5 distinct eTLD+1 labels).",
+      "should_trigger": true,
+      "assertions": [
+        "Skill triggers for the multi-domain passkey configuration question",
+        "v1.2.0: Concrete /.well-known/webauthn JSON shown: {\"origins\": [\"https://example.co.uk\", \"https://example-app.com\"]}",
+        "v1.2.0: Serving requirements stated: Content-Type: application/json, hosted at the rpID domain root, ~5-label limit mentioned",
+        "v1.2.0: Firefox question answered correctly: supported since Firefox 152 (May 2026) — NOT claimed as unsupported or 'no timeline'",
+        "v1.2.0: Chrome/Edge 128+ and Safari 18+ support also stated",
+        "v1.2.0: Distinguished from /.well-known/passkey-endpoints (Google Password Manager upgrade prompts)"
+      ]
+    },
+    {
+      "id": 18,
+      "prompt": "We want end-to-end encrypted notes in our app, and we'd like the user's passkey to unlock the encryption key so there's no extra password. Is that possible with WebAuthn?",
+      "expected_output": "Skill triggers (advanced passkey feature). Recommends the WebAuthn PRF extension: request extensions: { prf: { eval: { first: <salt> } } } during authentication (navigator.credentials.get()), derive a symmetric key client-side (e.g. HKDF) from the PRF output, never send the PRF output to the server. Caveats: PRF results are only returned during authentication ceremonies; availability varies per credential/provider — test each credential and keep a fallback unlock path. Support: Chrome/Edge, iOS 18+/macOS 15+, Windows Hello (since Feb 2026), Google Password Manager. references/advanced-features.md is the source.",
+      "should_trigger": true,
+      "assertions": [
+        "Skill triggers for the passkey-based encryption request",
+        "v1.2.0: PRF extension identified as the mechanism (extensions: { prf: ... }); references/advanced-features.md loaded or referenced",
+        "v1.2.0: PRF output obtained during authentication — navigator.credentials.get() — not treated as available from registration alone",
+        "v1.2.0: Per-credential availability caveat: PRF support varies by provider/credential — test each credential, keep a fallback unlock path",
+        "v1.2.0: Support summary includes Chrome/Edge, iOS 18+/macOS 15+, Windows Hello (since Feb 2026), Google Password Manager",
+        "v1.2.0: PRF output treated as client-side key material (e.g. HKDF-derived), never sent to the server"
+      ]
+    },
+    {
+      "id": 19,
+      "prompt": "Our staff all use YubiKeys. When they register a passkey the browser keeps pushing them toward phones and QR codes. How do we steer the flow to security keys? Spring Boot backend, plain JS frontend.",
+      "should_trigger": true,
+      "expected_output": "Skill triggers (registration UX steering). Recommends WebAuthn hints: hints: ['security-key'] in the registration (and authentication) options (Chrome 128+), values security-key | client-device | hybrid. Hints express a soft preference that steers browser UI without hard-blocking other authenticators — contrasted with authenticatorAttachment which filters. Backend guidance fits the Spring Boot stack (hints included in the options JSON the backend serves).",
+      "assertions": [
+        "Skill triggers for the authenticator-steering request",
+        "v1.2.0: hints: ['security-key'] on the options presented as the steering mechanism (Chrome 128+)",
+        "v1.2.0: The three hint values security-key | client-device | hybrid mentioned",
+        "v1.2.0: Hints positioned as a soft preference that does not hard-block other authenticators, contrasted with authenticatorAttachment",
+        "v1.2.0: Backend guidance fits the stack: hints delivered via the registration options JSON served by the Spring Boot backend"
+      ]
     }
   ]
 }
