@@ -213,10 +213,11 @@ const signInSmart = async (): Promise<void> => {
     await verifyOnServer((credential as PublicKeyCredential).toJSON());
   } catch (err: any) {
     if (err.name === 'NotAllowedError') {
-      // No local passkey → reveal the password form. Conditional UI
-      // (autofill) is already armed, so a phone-synced passkey still
-      // appears in the username-field dropdown. No modal, no error.
-      showLoginForm();
+      // No local passkey → reveal the password form and (re-)arm conditional
+      // UI on its username field, so a phone-synced passkey still surfaces in
+      // the autofill dropdown. No modal, no error. Immediate mode aborted any
+      // prior conditional request (see constraints below), so re-arm here.
+      showLoginForm();       // its onMounted/useEffect calls initConditionalAuth()
       return;
     }
     showError('Passkey sign-in failed. Try another method.');
@@ -696,6 +697,7 @@ export async function attemptPasskeyUpgrade(
   if (!(await isConditionalCreateAvailable())) return;
 
   // Trigger policy: attempt only when it can plausibly succeed.
+  // (daysSince(null) must return Infinity so the first-ever attempt isn't skipped.)
   if (user.passkeyCount > 0) return;                 // already upgraded
   if (daysSince(user.lastAutoUpgradeAt) < 7) return; // weekly cooldown
   // lastAutoUpgradeAt is set server-side on every attempt, success or
