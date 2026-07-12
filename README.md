@@ -79,6 +79,9 @@ The skill activates on prompts like:
 - "Add AAGUID-based passkey names"
 - "Debug passkey verify endpoint returning 401"
 - "Test passkey endpoints without hardware"
+- "Get password users onto passkeys automatically" (conditional create)
+- "Make our sign-in button smart" (immediate UI mode)
+- "Unlock encryption with a passkey" (PRF)
 
 ## Compatible agents
 
@@ -100,6 +103,11 @@ For each project, the skill produces:
   (`passkeys.*` namespace) so UI copy is never hardcoded in English
 - Design system adaptation: detects Tailwind, MUI, shadcn/ui, or plain CSS
   and generates components that match your existing stack
+- Automatic passkey upgrades (conditional create) after password sign-in,
+  with a sane trigger policy and passive confirmation UX
+- Advanced features on demand: smart sign-in button (immediate UI mode),
+  passkey-derived E2E encryption (PRF), multi-domain passkeys (Related
+  Origin Requests), iframe embedding, portability messaging (CXP/CXF)
 - Security review
 - Implementation completeness checklist before handoff
 - Rollout guidance (FIDO Gradual or Rapid strategy)
@@ -111,7 +119,7 @@ Built on:
 - [FIDO Alliance Passkey Central](https://passkeycentral.org) — design guidelines, UX principles, rollout guides, phishing prevention journey
 - [passkeys.dev](https://passkeys.dev) — library selection, bootstrapping patterns, conditional UI
 - [Google Identity Passkeys Guide](https://developers.google.com/identity/passkeys) — server-side registration and authentication patterns, DB schema
-- [W3C WebAuthn Specification](https://w3c.github.io/webauthn/) — cryptographic correctness, rpId, challenge, counter validation
+- [W3C WebAuthn Level 3](https://www.w3.org/TR/webauthn-3/) (Candidate Recommendation, 2026-01-13) — cryptographic correctness, rpId, challenge, counter validation, conditional create, Signal API, hints, Related Origin Requests
 
 ## Security model
 
