@@ -1,26 +1,25 @@
 ---
 name: passkeys-auth-migration
 description: >
-  Use this skill when the user wants to add, implement, or integrate passkeys,
-  migrate to passwordless authentication, implement WebAuthn or FIDO2, or
-  replace passwords/OTP/magic links with biometric or device-based login. Also
-  use it for passkey management (renaming passkeys, listing credentials, adding
-  AAGUID-based names), debugging an existing passkey/WebAuthn flow, or asking
-  how to test passkey endpoints and CI without hardware authenticators. Trigger
-  on phrases like "add passkeys", "implement passkeys", "integrate WebAuthn",
-  "migrate to passwordless", "WebAuthn", "FIDO2", "biometric login", "passkey
-  authentication", "passkey autofill not showing", "rename passkey",
-  "passkey management", or "test passkey endpoints". Works for backend-only,
-  frontend-only, separate-repo, or full-stack projects across any framework.
-  Do not trigger for general OAuth, SSO, non-passkey auth questions, general
-  passkey security/comparison explainers that do not ask for migration,
+  Use this skill to add, implement, or integrate passkeys, migrate to
+  passwordless authentication (WebAuthn/FIDO2), or replace passwords/OTP/magic
+  links with biometric or device-based login. Also for adoption upgrades
+  (automatic passkey upgrades / conditional create, smart sign-in button,
+  PRF encryption), passkey management (rename, AAGUID names), debugging an
+  existing passkey/WebAuthn flow, or testing passkey endpoints and CI without
+  hardware authenticators. Triggers: "add passkeys", "passkey autofill not
+  showing", "conditional create", "rename passkey", "test passkey endpoints".
+  Works for backend-only, frontend-only, separate-repo, or full-stack
+  projects. Do not trigger for
+  general OAuth, SSO, non-passkey auth questions, general passkey
+  security/comparison explainers that do not ask for migration,
   implementation, debugging, or testing, or hardware security key (FIDO U2F /
   WebAuthn second-factor only) questions where the user explicitly wants a
   second-factor flow rather than passwordless passkeys.
 license: MIT
 metadata:
   author: Sadjad Ousmane
-  version: "1.1.0"
+  version: "1.2.0"
   tags: authentication passkeys webauthn fido2 security passwordless migration
 compatibility: >
   Works with any coding agent that supports file reading and terminal commands

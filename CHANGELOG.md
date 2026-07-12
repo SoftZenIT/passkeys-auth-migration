@@ -1,5 +1,78 @@
 # Changelog
 
+## [1.2.0] — 2026-07-12
+
+### Adoption & UX Pack (WebAuthn Level 3)
+
+Aligns the skill with WebAuthn Level 3 (W3C Candidate Recommendation,
+2026-01-13) and the 2025–2026 passkey ecosystem. Benchmarked with 6 new evals
+(14–19) added test-first; baseline vs v1.1.0 documented in the eval commits.
+
+- **Conditional create (automatic passkey upgrades):** silent passkey creation
+  right after password sign-in (`useAutoRegister` / `mediation: 'conditional'`
+  on create) — frontend pattern with cooldown trigger policy, backend
+  implications, UX rules (no interstitial, passive confirmation), and wiring
+  into both Rapid and Gradual rollout strategies
+- **Immediate UI mode (smart sign-in button):** `uiMode: 'immediate'`
+  (Chrome 149+), including the warning that the origin-trial
+  `mediation: 'immediate'` syntax no longer works, and silent
+  `NotAllowedError` fallback with conditional UI armed
+- **Signal API completed:** `signalCurrentUserDetails` for syncing
+  username/displayName changes (Chrome 132+, Safari 26 + WebKit
+  fire-and-forget caveat); nickname-rename vs picker-name distinction
+- **WebAuthn hints:** `hints: ['security-key'|'client-device'|'hybrid']`
+  guidance + SimpleWebAuthn v13 `preferredAuthenticatorType` mapping
+- **Related Origin Requests fixed:** Firefox 152 (May 2026) support replaces
+  the stale "no timeline" claim; concrete `/.well-known/webauthn`
+  `{"origins": [...]}` example added
+- **NEW `references/advanced-features.md`:** PRF extension (passkey-derived
+  E2E encryption keys), largeBlob, Credential Exchange (CXP/CXF) portability,
+  cross-origin iframe embedding (Permissions-Policy), full ROR guide
+- **Freshness:** SimpleWebAuthn matrix v11 → v13 (types retired,
+  `verifyMDSBlob()`, `useAutoRegister`); `getClientCapabilities` support
+  matrix refreshed; spec-level JSON serialization helpers documented
+- **Copy:** portability reassurance block (counters the lock-in objection)
+  and automatic-upgrade confirmation toast
+- **Evals:** 6 new evals + v1.2.0-tagged assertions on evals 1 and 12;
+  `run-evals.mjs` gains a v1.2.0 feature-coverage pattern group (127 checks)
+
+## [1.1.0] — 2026-05-10
+
+### Premium Improvements
+
+Two waves of improvements benchmarked at 99.5% (vs 93.4% for v1.0.0, zero
+regressions, 25 new discriminating assertions).
+
+**Wave 1 — features:**
+
+- Plan-mode enforcement before any implementation code (Pre-Phase 0)
+- i18n detection in Phase 0 + `passkeys.*` key catalog and per-framework
+  wiring (NEW `references/i18n-guide.md`)
+- Rapid rollout as the recommended default strategy
+- Passkey naming: AAGUID-based default names (FIDO MDS) + inline rename UI
+  + `PATCH /auth/passkey/:id` endpoint with ownership checks
+- Install verification step before the backend checkpoint
+- Implementation Completeness Checklist gating Phase 3 → Phase 4
+- Design-system detection (Tailwind, MUI, shadcn/ui, Chakra, etc.) and
+  component adaptation rules
+
+**Wave 2 — 13 real-world hardening fixes** (from NestJS/React and Django/Nuxt
+field testing):
+
+- NestJS DTO whitelist rejecting SimpleWebAuthn v13 response fields
+- Prisma `BigInt` counter serialization crashes
+- Separate `autofillPending` / `loading` states + AbortController for the
+  conditional UI ceremony
+- Django: bytes challenge in session, transports enum conversion,
+  no-`.verified`-attribute pattern, 3-step `passkey_user_id` migration,
+  `sign_count` naming, `@csrf_exempt` on public endpoints
+- `userHandle` base64url decoding before DB lookup
+- Laravel sodium extension requirement
+
+**Docs & evals:** evals 9–13 added (troubleshooting, testing, i18n, rename,
+userHandle debugging); trigger-description tuning for rename/integrate
+phrasing; README overhaul.
+
 ## [1.0.0] — 2026-04-01
 
 ### Initial Release
