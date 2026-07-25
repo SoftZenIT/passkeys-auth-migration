@@ -78,151 +78,115 @@ The "plan before code" rule applies when you will write implementation code.
 
 ## Gotchas — Read before anything else
 
-Watch out for these non-obvious pitfalls before writing any code:
+Nearly every one of these fails **silently**: the ceremony completes, no error
+surfaces, and the bug appears only as "login just doesn't work". That is why
+they are worth reading before writing code rather than debugging afterwards.
+The stack-specific group is a checklist of symptoms — full fixes live in the
+Phase 1 references you will load anyway.
 
-- **rpID must be domain only** — no protocol, no port, no path. `example.com`
-  works. `https://example.com`, `example.com:3000`, `example.com/app` all fail
-  silently — the WebAuthn ceremony completes but verification always rejects.
-- **Challenge must be deleted in the `catch` block too**, not only on success.
-  Leaving a failed challenge in the store allows replay attacks.
-- **BigInt ↔ Number conversion with Prisma** — Prisma stores `counter` as
-  `BigInt`. SimpleWebAuthn returns `Number`. Always convert:
-  `Number(passkey.counter)` when reading, `BigInt(newCounter)` when writing.
-- **`residentKey: 'preferred'` is what creates a passkey** — without it the
-  browser creates a non-discoverable credential (no passkey selector shown).
-- **`autocomplete="username webauthn"`** must be on the _username/email_ input,
-  not the password input. This is what activates the browser's passkey autofill.
-- **`useBrowserAutofill: true`** must be set in `startAuthentication()` for the
-  autofill (conditional UI) flow. Without it, no passkey appears in autofill.
-- **Django `options_to_json()`** returns a string — wrap with `json.loads()`
-  before returning as `JsonResponse`.
-- **`passkeyUserId` must be PII-free** — never use email or username as
-  `user.id` in WebAuthn options. The authenticator returns it as `userHandle`.
-- **Never store or log the raw credential response** — it contains attestation
-  data not needed after verification. Store only `credentialId`, `publicKey`,
-  `counter`, `deviceType`, `backedUp`, and `transports`.
-- **HTTPS is required in production** — WebAuthn refuses to run on HTTP except
-  on `localhost`. Configure TLS before testing in staging or production.
-- **Signal orphaned credentials** — when authentication fails with a 404 (credential
-  not found), call `PublicKeyCredential.signalUnknownCredential({ rpId, credentialId })`
-  so the passkey provider removes the stale entry. Without this, users see phantom
-  passkeys that always fail. Likewise, after a server-side username/displayName
-  change, call `signalCurrentUserDetails` (Chrome 132+, Safari 26) so the passkey
-  picker doesn't show stale names — fire-and-forget; see
+### Configuration — wrong here, everything else is wasted
+
+- **rpID is domain only** — no protocol, port, or path. `example.com` works;
+  `https://example.com`, `example.com:3000`, `example.com/app` all fail
+  verification while the browser ceremony appears to succeed.
+- **HTTPS required in production** — WebAuthn runs on `localhost` or TLS only.
+- **`passkeyUserId` must be PII-free** — never email/username as WebAuthn
+  `user.id`; the authenticator hands it back as `userHandle`, so it is
+  effectively public.
+- **Two different `.well-known/` files** — `/.well-known/passkey-endpoints`
+  points Google Password Manager at your enroll/manage pages (upgrade prompts).
+  `/.well-known/webauthn` (`Content-Type: application/json`) is the WebAuthn
+  Level 3 Related Origin Requests file, letting one passkey serve up to five
+  domains: `{"origins": ["https://example.co.uk", "https://example-app.com"]}`.
+  Both sit at the rpID domain root. Most apps need only the first; add the
+  second for a genuine multi-domain deployment. ROR: Chrome/Edge 128+,
+  Safari 18+, Firefox 152+ (May 2026 — last gap closed). Full example:
+  `references/advanced-features.md` §Related Origin Requests.
+
+### Ceremony correctness
+
+- **Delete the challenge in the `catch` block too**, not just on success — a
+  surviving failed challenge is a replay window.
+- **`excludeCredentials` is mandatory** on registration options, or users
+  silently accumulate duplicate passkeys for the same device.
+- **`residentKey: 'preferred'` is what makes it a passkey** — without it you
+  get a non-discoverable credential and no passkey selector.
+- **`userHandle` comes back base64url-encoded** — decode before any DB lookup
+  (`Buffer.from(userHandle, 'base64url').toString()` /
+  `base64.urlsafe_b64decode(userHandle + '==').decode()`), or every lookup
+  misses and returns 401 with a valid credential in the table.
+- **Never store or log the raw credential response** — keep only
+  `credentialId`, `publicKey`, `counter`, `deviceType`, `backedUp`, `transports`.
+
+### Frontend behaviour
+
+- **`autocomplete="username webauthn"`** belongs on the _username/email_ input,
+  never the password input — this is what arms passkey autofill.
+- **`useBrowserAutofill: true`** in `startAuthentication()` is required for the
+  conditional-UI flow; without it nothing appears in autofill.
+- **Two loading states, not one** — the autofill call is a long-lived pending
+  promise. Sharing one `loading` flag with the explicit button leaves that
+  button disabled forever. Keep `autofillPending` separate from `loading`.
+- **Abort before any modal request** — only one ceremony may be active. With
+  conditional UI pending, a modal or immediate request is rejected instantly
+  with `NotAllowedError` unless you call `abortController.abort()` first
+  (`WebAuthnAbortService.cancelCeremony()` in SimpleWebAuthn).
+- **`NotAllowedError` usually means the user dismissed the prompt** (>95%) —
+  never a red error state. Use "Cancelled — you can try again anytime."
+  `AbortError` and `InvalidStateError` are likewise routine; keep them neutral.
+- **Conditional create silently upgrades password users** — after a password
+  sign-in, feature-detect `getClientCapabilities().conditionalCreate`, then
+  `startRegistration({ optionsJSON, useAutoRegister: true })` (Safari 18+,
+  Chrome 136+ desktop / 142+ Android). Do not fire on every login. Chrome
+  honours it only within ~5 minutes of sign-in, needs the password saved in the
+  credential manager, and Google Password Manager makes the final call. The
+  server must verify with `requireUserPresence: false` on this path only —
+  there is no user gesture, so the UP flag is unset and default verification
+  rejects it. See `references/frontend-integration.md` §Conditional Create.
+- **Immediate UI is `uiMode: 'immediate'`, not `mediation: 'immediate'`** —
+  Chrome 149+ ships the former; the origin-trial syntax no longer triggers
+  anything. `NotAllowedError` here means "no local credential" → fall back
+  silently. Chrome-only as of mid-2026; treat as progressive enhancement.
+
+### Provider quirks
+
+- **Signal stale credentials** — on a 404 at authentication call
+  `PublicKeyCredential.signalUnknownCredential({ rpId, credentialId })` so the
+  provider drops the phantom passkey. After a server-side username/displayName
+  change call `signalCurrentUserDetails` (Chrome 132+, Safari 26) so the picker
+  stops showing stale names — fire-and-forget; see
   `references/security-checklist.md` §L2 for the WebKit caveat.
-- **UV flag non-compliance in some providers** — 1Password Extension, Bitwarden
-  Extension, KeepassXC, Proton Pass Extension, and Okta Personal Extension all
-  set the `uv` flag to `true` without actually performing user verification. Never
-  rely on the `uv` flag alone for high-assurance operations (step-up auth, payments).
-  Their _native_ (non-extension) counterparts are compliant. **Mitigation:** for
-  any step-up or high-assurance action, require a separate explicit re-authentication
-  ceremony (e.g. a fresh `navigator.credentials.get()` with `userVerification: "required"`
-  scoped to that action) rather than checking the `uv` flag on the session-level
-  credential. Do not strip `uv` checks entirely — they still block non-UV authenticators
-  in standard flows. See `references/troubleshooting.md` for details.
-- **`/.well-known/passkey-endpoints`** — add this JSON file to your domain so
-  Google Password Manager can prompt users to upgrade to passkeys after password
-  sign-in. Required for the "promote passkey upgrades" pattern.
-- **`excludeCredentials` prevents duplicate passkeys** — always pass existing
-  credential IDs when generating registration options. Without this, users can
-  register unlimited passkeys for the same device.
-- **Two separate `.well-known/` files serve different purposes** —
-  `/.well-known/passkey-endpoints` (JSON) tells Google Password Manager where
-  your enroll/manage pages are, enabling upgrade prompts after password sign-in.
-  `/.well-known/webauthn` (JSON, `Content-Type: application/json`) is the
-  WebAuthn Level 3 Related Origin Requests file — it lets one passkey work across
-  up to five domains: `{"origins": ["https://example.co.uk", "https://example-app.com"]}`.
-  Both files live at the rpID domain root. Most apps only need `passkey-endpoints`;
-  add `webauthn` only for a genuine multi-domain deployment. ROR is supported in
-  Chrome/Edge 128+, Safari 18+, and Firefox 152+ (May 2026 — the last browser gap,
-  now closed). Full example: `references/advanced-features.md` §Related Origin Requests.
-- **Conditional create upgrades password users silently** — right after a password
-  sign-in, feature-detect `getClientCapabilities().conditionalCreate` and attempt
-  `startRegistration({ optionsJSON, useAutoRegister: true })` (Safari 18+, Chrome 136+
-  desktop / 142+ Android). Do not fire on every login. Chrome honors it only within
-  ~5 minutes of sign-in, requires the password saved in the credential manager, and
-  Google Password Manager makes the final call. Catch `InvalidStateError`; silent
-  failure is normal — never show an error for a flow the user didn't start.
-  See `references/frontend-integration.md` §Conditional Create.
-- **Immediate UI mode is `uiMode: 'immediate'` — not `mediation: 'immediate'`** —
-  Chrome 149+ shipped the stable syntax; the origin-trial `mediation` syntax no
-  longer triggers immediate mode. `NotAllowedError` means "no locally-available
-  credential" — silently fall back to the regular form. Chrome-only as of mid-2026;
-  treat as progressive enhancement. See `references/frontend-integration.md`
-  §Immediate UI Mode.
-- **NestJS `register/verify` DTO must allow SWA v13+ fields** — SimpleWebAuthn
-  browser v13+ sends `publicKeyAlgorithm`, `publicKey`, and `authenticatorData`
-  in the registration response (valid W3C Level 3 fields). A `ValidationPipe`
-  with `forbidNonWhitelisted: true` rejects these with 400 before
-  `verifyRegistrationResponse()` runs. The frontend shows a misleading "cancelled"
-  message because the browser ceremony already succeeded. Fix: add these fields
-  as `@IsOptional()` in the DTO, or apply `forbidNonWhitelisted: false` on that
-  endpoint only. See `references/backend-integration.md` §NestJS Common Pitfalls.
-- **Never return raw Prisma/ORM rows from passkey endpoints** — Prisma maps
-  `counter` to native JS `bigint`. `JSON.stringify` (used by Express/Nest)
-  cannot serialize `bigint`, so any endpoint returning the raw DB row throws
-  `TypeError: Do not know how to serialize a BigInt` after the write succeeds.
-  Always return a response DTO; exclude `counter` entirely (clients never need it).
-- **Separate loading states for autofill vs. explicit button** — The conditional
-  UI call `startAuthentication({ useBrowserAutofill: true })` is a long-lived
-  pending promise. A single `loading` flag shared with the explicit button leaves
-  the "Sign in with a passkey" button disabled indefinitely. Use `autofillPending`
-  (does NOT disable the button) separately from `loading` (only for the button).
-- **AbortController must be called before starting a modal passkey request** —
-  Only one WebAuthn request can be active at a time. If conditional UI is already
-  pending and the user clicks the explicit button, the modal request is instantly
-  rejected with `NotAllowedError` unless you first call `abortController.abort()`.
-  Use `WebAuthnAbortService.cancelCeremony()` (SimpleWebAuthn) or your own ref.
-- **Django: split `passkey_user_id` migration into three steps** — A single-step
-  `AddField` with `default=uuid.uuid4, unique=True` fails on tables with existing
-  rows because Django evaluates the default once, giving every row the same UUID.
-  Always use: (1) add as nullable, (2) `RunSQL` with `gen_random_uuid()`,
-  (3) `AlterField` to add `NOT NULL UNIQUE`. See `references/db-schema.md`.
-- **Django: `options.challenge` is `bytes` — base64-encode before session storage** —
-  py_webauthn returns `options.challenge` as `bytes`. Django sessions use a JSON
-  serializer that cannot handle `bytes`, causing `TypeError: Object of type bytes
-  is not JSON serializable` on challenge endpoints. Always encode:
-  `request.session['key'] = base64.b64encode(options.challenge).decode()` and
-  decode on retrieval: `base64.b64decode(request.session.pop('key'))`.
-- **Django: `transports` stored as strings must be converted to enum on read** —
-  `PublicKeyCredentialDescriptor` requires `AuthenticatorTransport` enum values.
-  The `JSONField` stores them as plain strings. Always convert when building
-  `excludeCredentials`: `transports=[AuthenticatorTransport(t) for t in (pk.transports or [])]`.
-  Without this, `options_to_json()` throws `AttributeError: 'str' has no attribute 'value'`
-  when any existing passkey's `transports` field is accessed.
-- **Django: `verify_authentication_response()` raises on failure — no `.verified` field** —
-  py_webauthn v2 raises an exception when verification fails. It does NOT return
-  an object with a `.verified` attribute. Wrap the call in `try/except` and treat
-  "reached the next line" as success. Never write `if not verification.verified`.
-- **Django: use `sign_count` everywhere — never rename to `counter`** — py_webauthn
-  returns `verification.new_sign_count`. The model field, serializer, and all view
-  references must use the same name (`sign_count`). Mixing `counter` in queries
-  with `sign_count` in the model causes `UndefinedColumn` errors at runtime.
-- **Django: public passkey endpoints require `@csrf_exempt`** — The auth challenge
-  and auth verify endpoints are called before the user has a CSRF cookie. Without
-  `@csrf_exempt`, DRF/Django returns 403. Registration endpoints (called while
-  logged in) do NOT need `@csrf_exempt` but the frontend must send `X-CSRFToken`.
-- **Spring Boot / Go: in-memory storage is not production-safe** — The default
-  Spring Security passkey config and many go-webauthn examples use in-memory
-  stores. These lose all registered credentials on restart. Always implement
-  a database-backed repository before deploying.
-- **Laravel: install `sodium` or `paragonie/sodium-compat`** — Without the PHP
-  sodium extension, EdDSA 25519 passkeys silently fail validation at login.
-  Verify: `php -m | grep sodium`. See `references/backend-integration.md` §Laravel.
-- **`@simplewebauthn/types` is retired in v13** — Types are now bundled in
-  `@simplewebauthn/browser` and `@simplewebauthn/server`. Remove any
-  `@simplewebauthn/types` dependency. `AuthenticatorDevice` is renamed to
-  `WebAuthnCredential` in v13 — consult the SimpleWebAuthn CHANGELOG before upgrading.
-- **`NotAllowedError` is almost always the user dismissing the prompt** — Over
-  95% of `NotAllowedError` events are expected behavior (user cancelled). Do not
-  show a red error state. Use neutral copy: "Cancelled — you can try again anytime."
-  `AbortError` (conditional UI cleanup) and `InvalidStateError` (during conditional
-  create) should also be caught silently or shown as neutral notices.
-- **`userHandle` from auth response is base64url-encoded** — `body.response.userHandle`
-  is a base64url string. Decoding before DB lookup is required. Node.js:
-  `Buffer.from(userHandle, 'base64url').toString()`. Python:
-  `base64.urlsafe_b64decode(userHandle + '==').decode()`. The raw string lookup
-  always fails to find the user.
+- **Some providers lie about the `uv` flag** — 1Password, Bitwarden, KeepassXC,
+  Proton Pass and Okta Personal *browser extensions* report `uv: true` without
+  performing user verification (their native apps are compliant). Never trust
+  `uv` alone for step-up auth or payments: require a fresh
+  `navigator.credentials.get()` with `userVerification: "required"` scoped to
+  that action. Do not remove `uv` checks either — they still block non-UV
+  authenticators in normal flows. Details in `references/troubleshooting.md`.
+
+### Stack-specific — symptoms to recognise (fixes in the Phase 1 references)
+
+- **SimpleWebAuthn v13**: `@simplewebauthn/types` is retired (types ship inside
+  server/browser) and `AuthenticatorDevice` is now `WebAuthnCredential`.
+- **Prisma**: `counter` is `BigInt`, SimpleWebAuthn uses `Number` — convert both
+  ways (`Number(...)` reading, `BigInt(...)` writing). Never return a raw ORM
+  row: `JSON.stringify` cannot serialize `bigint` and throws *after* the write
+  succeeds. Return a DTO and omit `counter`.
+- **NestJS**: a `ValidationPipe` with `forbidNonWhitelisted: true` rejects the
+  valid SWA v13 fields `publicKeyAlgorithm`, `publicKey`, `authenticatorData`
+  with a 400 — and the frontend misreports it as "cancelled". Whitelist them
+  (`@IsOptional()`) or disable the flag on that endpoint.
+- **Django**: `options_to_json()` returns a *string* (wrap in `json.loads()`);
+  `options.challenge` is `bytes` and must be base64-encoded before session
+  storage; `transports` need `AuthenticatorTransport(t)` conversion when read;
+  `verify_authentication_response()` **raises** rather than returning
+  `.verified`; the field is `sign_count` everywhere (never `counter`); public
+  endpoints need `@csrf_exempt`; and the `passkey_user_id` migration must be
+  three steps (nullable → `RunSQL gen_random_uuid()` → `NOT NULL UNIQUE`).
+- **Spring Boot / Go**: the default in-memory credential stores lose everything
+  on restart — implement DB-backed repositories before deploying.
+- **Laravel**: without the PHP `sodium` extension, EdDSA passkeys fail
+  validation at login. Check `php -m | grep sodium`.
 
 ---
 
@@ -546,8 +510,9 @@ STEP 7 — Accessibility (WCAG 2.1 AA)
 
 STEP 8 — Browser testing
   Chrome (desktop + Android), Safari (macOS + iOS), Edge + Windows Hello — full support
-  Firefox (desktop) — passkey registration and auth work; Conditional UI autofill
-    is NOT supported in Firefox as of 2026; ensure password fallback is reachable
+  Firefox 119+ (desktop) — full support including Conditional UI autofill;
+    depends on OS passkey support (Windows 11 / macOS). Firefox on Android
+    lagged on autofill — verify there and keep the explicit button reachable
 
 STEP 9 — Internationalization (only if i18n_detected = true from Phase 0)
   Do NOT hardcode any user-visible passkey string.

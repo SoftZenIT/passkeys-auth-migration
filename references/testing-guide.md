@@ -418,5 +418,5 @@ export const rpConfig = { ... };
 - [ ] Tests use short challenge TTL (60 seconds) to avoid timing issues
 - [ ] Config regression tests verify rpId and origin match env vars
 - [ ] Cross-browser tested manually: Chrome, Safari, Edge — full passkey support
-- [ ] Firefox tested — passkey registration and authentication work; Conditional UI (autofill) is not supported in Firefox as of 2026, so the autofill suggestion will not appear; password fallback must still work
+- [ ] Firefox tested — registration, authentication, and Conditional UI autofill all work on desktop Firefox 119+ (needs Windows 11 or macOS underneath; on Windows 10 no suggestion appears). Verify Firefox on Android separately — its autofill support lagged — and confirm password fallback still works
 - [ ] Mobile tested: iOS Safari, Chrome for Android

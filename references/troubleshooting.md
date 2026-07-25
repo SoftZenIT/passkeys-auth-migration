@@ -84,7 +84,7 @@ dropdown when the user clicks/focuses on the username field.
 | Chrome | 108 | Full support including Android |
 | Edge | 108 | Full support |
 | Safari | 16 (iOS/macOS) | Requires iOS 16 / macOS Ventura |
-| Firefox | — | **Not supported** — passkey registration and auth work, but Conditional UI autofill does not appear; ensure your explicit "Sign in with a passkey" button is always visible |
+| Firefox | 119 (desktop) | Supported since 119 (shipped broadly in 122). Requires OS-level passkey support — Windows 11 or macOS; on Windows 10 the call resolves but no suggestion appears. Firefox on Android lagged on autofill: verify on your target and keep the explicit button visible |
 | Samsung Internet | 21 | Android only |
 
 **Detection before invoking:**
@@ -191,7 +191,11 @@ Never log `NotAllowedError` as an error — it's user-initiated cancellation.
 ## Problem 6: Cross-browser / platform incompatibilities
 
 ### Firefox
-- No Conditional UI on Android (no autofill passkey suggestions)
+- Conditional UI works on desktop from 119 (broadly shipped in 122), but only
+  where the OS supports passkeys (Windows 11 / macOS) — on Windows 10 the
+  promise resolves and no suggestion ever appears, which looks like a bug in
+  your code but is not
+- Firefox on Android lagged on Conditional UI autofill — verify before relying on it
 - `getTransports()` not available (returns undefined) — always guard with `if (credential.response.getTransports)`
 - No support for `credProps` extension on older versions
 

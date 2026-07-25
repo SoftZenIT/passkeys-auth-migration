@@ -46,7 +46,7 @@ export const isConditionalUIAvailable = async (): Promise<boolean> => {
       // fall through to legacy API
     }
   }
-  // Legacy API (Chrome 108+, Safari 16+): isConditionalMediationAvailable()
+  // Legacy API (Chrome 108+, Safari 16+, Firefox 119+): isConditionalMediationAvailable()
   return typeof PublicKeyCredential.isConditionalMediationAvailable === 'function' &&
     PublicKeyCredential.isConditionalMediationAvailable();
 };
