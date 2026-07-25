@@ -132,17 +132,16 @@ Built on:
 
 ## Contributing
 
-Issues and pull requests welcome at the GitHub repository. When contributing:
+Issues and pull requests welcome. The skill is developed test-first — new
+behaviour starts as a failing assertion in `evals/evals.json`, not as prose.
 
-1. Add or update assertions in `evals/evals.json` to cover new behavior
-2. Verify new stack support against `references/library-matrix.md`
-3. For new frameworks, add schema to `references/db-schema.md`
-4. Update the supported stacks table in this README
+```bash
+npm run test:evals   # structural validator, keep green in every commit
+```
 
-Evals are run via the skill-creator toolchain. Each assertion in
-`evals/evals.json` is graded against outputs produced by a subagent running
-the skill on the corresponding prompt — see `evals/evals.json` for the full
-list and assertion format.
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the eval workflow, how to run
+the full skill-creator benchmark, the rules for editing the trigger
+description, and the content conventions.
 
 ## License
 
