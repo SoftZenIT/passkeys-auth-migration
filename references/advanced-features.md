@@ -50,6 +50,9 @@ const salt = new TextEncoder().encode('myapp-vault-unlock-v1');
 const credential = await navigator.credentials.get({
   publicKey: {
     ...optionsFromServer,
+    // Unlocking data is a high-assurance action — override the server's
+    // default ('preferred') so a biometric/PIN is actually performed.
+    userVerification: 'required',
     extensions: { prf: { eval: { first: salt } } },
   },
 });
@@ -150,24 +153,30 @@ credential managers. Two RP-side consequences:
 ## Cross-Origin Iframe Embedding
 
 WebAuthn calls inside a cross-origin `<iframe>` are blocked by default and fail
-with `NotAllowedError`. Both sides must opt in (WebAuthn Level 3 defines the
-Permissions Policy integration):
+with `NotAllowedError`. **The parent delegates the permission to the frame** —
+both steps below are done by the embedding page (WebAuthn Level 3 defines the
+Permissions Policy integration). The embedded site sends no header of its own.
+
+Say `https://shop.example` (parent) embeds `https://auth.partner.example`:
+
+```
+# 1. Parent's response headers — allowlist names the EMBEDDED origin:
+Permissions-Policy: publickey-credentials-get=(self "https://auth.partner.example"),
+                    publickey-credentials-create=(self "https://auth.partner.example")
+```
 
 ```html
-<!-- Embedding page (parent) — allow the frame to run WebAuthn ceremonies: -->
+<!-- 2. Parent's markup — the iframe tag must also enable the feature: -->
 <iframe
   src="https://auth.partner.example/signin"
   allow="publickey-credentials-get; publickey-credentials-create"
 ></iframe>
 ```
 
-```
-# Embedded site (response headers) — declare who may embed it:
-Permissions-Policy: publickey-credentials-get=(self "https://shop.example"),
-                    publickey-credentials-create=(self "https://shop.example")
-```
-
 Rules:
+- **Both steps are required** — the header without the `allow` attribute (or
+  vice versa) still leaves the ceremony blocked.
+- A frame cannot grant itself the permission; only its embedder can.
 - `publickey-credentials-get` gates `navigator.credentials.get()`;
   `publickey-credentials-create` gates `create()`. Grant only what the frame needs.
 - The ceremony inside the iframe still requires **transient user activation**
@@ -179,9 +188,9 @@ Rules:
   registration flow.
 
 **Troubleshooting `NotAllowedError` in an iframe:** check (1) the `allow`
-attribute on the iframe tag, (2) the embedded site's `Permissions-Policy`
-response header, (3) user activation, (4) that the iframe is HTTPS. All four
-must pass.
+attribute on the iframe tag, (2) the **parent's** `Permissions-Policy` response
+header and that its allowlist names the *embedded* origin, (3) user activation,
+(4) that both documents are HTTPS. All four must pass.
 
 ---
 

@@ -103,11 +103,34 @@ is minimal — reuse the existing registration ceremony:
   authenticated (it fires immediately after password login, so a session exists).
 - **`excludeCredentials` still mandatory** — it's what prevents repeated silent
   upgrades from duplicating passkeys.
-- **Verification is identical** (`verifyRegistrationResponse` etc.). The
-  browser-created credential is a normal passkey.
+- **⚠️ Verification MUST relax the user-presence check.** A conditional-create
+  ceremony runs with no user interaction, so the authenticator returns the
+  credential with the **UP (user present) flag unset**. SimpleWebAuthn's
+  `requireUserPresence` defaults to `true` and throws
+  `"User presence was required, but user was not present"`, silently rejecting
+  every auto-created passkey. Pass `requireUserPresence: false` **only** on the
+  conditional-create path — never on the normal, user-initiated one:
+
+  ```typescript
+  const verification = await verifyRegistrationResponse({
+    response: body,
+    expectedChallenge,
+    expectedOrigin: process.env.APP_ORIGIN!,
+    expectedRPID: process.env.RP_ID!,
+    // Auto-upgrade only: no user gesture, so UP is false by design.
+    requireUserPresence: body.source !== 'conditional-create',
+  });
+  ```
+  Everything else (challenge, origin, rpID, signature, storage) is unchanged —
+  the resulting credential is a normal passkey. Other libraries expose the same
+  switch (e.g. py_webauthn `require_user_presence=False`); if yours does not,
+  it cannot verify conditional-create responses yet.
 - **Tag the source for metrics**: accept an optional `source` field on the
   verify request (`"conditional-create"` vs `"user-initiated"`) and store it —
   adoption dashboards need to distinguish silent upgrades from manual creates.
+  It also drives the `requireUserPresence` switch above, so it must be part of
+  the verify DTO (see §NestJS Common Pitfalls — a `forbidNonWhitelisted`
+  ValidationPipe rejects any field the DTO does not declare).
 
 ---
 
@@ -227,12 +250,11 @@ export class PasskeyController {
   @UseGuards(JwtAuthGuard)
   async listPasskeys(@Request() req) {}
 
-  @Delete(":credentialId")
+  // Keyed on the passkey row's DB id — matches DELETE /auth/passkey/:id in the
+  // plan, the frontend, and the sibling PATCH rename endpoint.
+  @Delete(":id")
   @UseGuards(JwtAuthGuard)
-  async deletePasskey(
-    @Request() req,
-    @Param("credentialId") credentialId: string,
-  ) {}
+  async deletePasskey(@Request() req, @Param("id") id: string) {}
 }
 ```
 
@@ -301,7 +323,9 @@ try {
   await this.prisma.passkey.create({
     data: {
       userId,
-      credentialId: Buffer.from(credential.id),
+      // credential.id is a base64url STRING — decode it to raw bytes, or the
+      // auth lookup (Buffer.from(body.rawId, "base64url")) will never match.
+      credentialId: Buffer.from(credential.id, "base64url"),
       publicKey: Buffer.from(credential.publicKey),
       counter: BigInt(credential.counter), // Number -> BigInt for Prisma
       deviceType: credentialDeviceType,
@@ -499,6 +523,21 @@ Use two separate states and see the two-loading-states pattern in
 ---
 
 ## Django + py_webauthn
+
+> ⚠️ **Auth-transport mismatch with the frontend examples.** This example is
+> **session-cookie** based: it reads `request.user`, stores the challenge in
+> `request.session`, and calls `login(request, user)` on success. The frontend
+> examples in `references/frontend-integration.md` are **Bearer-token** based
+> (`Authorization: Bearer …`) and send no cookies. Pick one and apply it
+> consistently, or the two halves will not talk to each other:
+> - **Staying on sessions (this example):** every passkey `fetch()` needs
+>   `credentials: 'include'`, plus an `X-CSRFToken` header on the
+>   authenticated register endpoints; drop the `Authorization` header. Treat
+>   `{'verified': True}` as "session cookie is now set" — there is no token to
+>   store. Set `CORS_ALLOW_CREDENTIALS = True` if the frontend is on another origin.
+> - **Staying on tokens:** replace `request.user` with your DRF token auth,
+>   return a token from the verify view instead of calling `login()`, and move
+>   challenge storage from the session to a cache keyed by the token/user.
 
 ### Install
 
@@ -1117,7 +1156,10 @@ func (h *PasskeyHandler) RegisterChallenge(c *gin.Context) {
     sessionJSON, _ := json.Marshal(sessionData)
     h.store.Set("reg:"+userID, sessionJSON, 300) // 5 min TTL
 
-    c.JSON(http.StatusOK, creation)
+    // Send creation.Response (the inner PublicKeyCredentialCreationOptions).
+    // Marshalling `creation` itself wraps it in {"publicKey": {...}}, which
+    // SimpleWebAuthn's startRegistration({ optionsJSON }) cannot read.
+    c.JSON(http.StatusOK, creation.Response)
 }
 
 // POST /auth/passkey/register/verify  (requires auth middleware)
@@ -1169,7 +1211,8 @@ func (h *PasskeyHandler) AuthChallenge(c *gin.Context) {
     sessionJSON, _ := json.Marshal(sessionData)
     h.store.Set("auth:"+sessionID, sessionJSON, 600) // 10 min TTL for cross-device
 
-    c.JSON(http.StatusOK, assertion)
+    // Same unwrapping as registration — send the inner request options.
+    c.JSON(http.StatusOK, assertion.Response)
 }
 
 // POST /auth/passkey/authenticate/verify  (public)

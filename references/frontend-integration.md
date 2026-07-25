@@ -201,6 +201,12 @@ const signInSmart = async (): Promise<void> => {
     return showLoginForm();  // standard flow for every other browser
   }
 
+  // MANDATORY: only one WebAuthn ceremony may be active. If conditional UI
+  // (autofill) is already pending, the immediate get() is rejected instantly
+  // with NotAllowedError — indistinguishable from "no credential found".
+  // SimpleWebAuthn users: WebAuthnAbortService.cancelCeremony().
+  conditionalAbortController?.abort();
+
   try {
     const optionsJSON = await fetch('/auth/passkey/authenticate/challenge', { method: 'POST' })
       .then(r => r.json());
@@ -213,10 +219,9 @@ const signInSmart = async (): Promise<void> => {
     await verifyOnServer((credential as PublicKeyCredential).toJSON());
   } catch (err: any) {
     if (err.name === 'NotAllowedError') {
-      // No local passkey → reveal the password form and (re-)arm conditional
-      // UI on its username field, so a phone-synced passkey still surfaces in
-      // the autofill dropdown. No modal, no error. Immediate mode aborted any
-      // prior conditional request (see constraints below), so re-arm here.
+      // No local passkey → reveal the password form and re-arm conditional UI
+      // on its username field (we aborted it above), so a phone-synced passkey
+      // still surfaces in the autofill dropdown. No modal, no error.
       showLoginForm();       // its onMounted/useEffect calls initConditionalAuth()
       return;
     }
@@ -235,8 +240,11 @@ const signInSmart = async (): Promise<void> => {
   cross-device/hybrid (QR code) options — users whose only passkey lives on
   their phone will land in your fallback path.
 - **Single-ceremony rule still applies**: abort any pending conditional UI
-  request (AbortController) before firing the immediate `get()` — see the
-  SKILL.md AbortController gotcha.
+  request (AbortController) before firing the immediate `get()`, as the code
+  above does. Skipping the abort makes the immediate call fail with
+  `NotAllowedError` **even when the user has a local passkey** — and that error
+  is indistinguishable from "no credential", so the feature silently never
+  works. See the SKILL.md AbortController gotcha.
 
 ---
 
@@ -715,11 +723,16 @@ export async function attemptPasskeyUpgrade(
     const { startRegistration } = await import('@simplewebauthn/browser');
     const reg = await startRegistration({ optionsJSON: options, useAutoRegister: true });
 
-    await fetch('/auth/passkey/register/verify', {
+    // `source` drives the server's requireUserPresence switch AND metrics —
+    // it must be declared in the verify DTO (see backend-integration.md).
+    const res = await fetch('/auth/passkey/register/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ ...reg, source: 'conditional-create' }),  // metrics tag
+      body: JSON.stringify({ ...reg, source: 'conditional-create' }),
     });
+    // fetch() does NOT throw on 4xx/5xx — check explicitly, or you announce a
+    // passkey the server rejected and the user has nothing to sign in with.
+    if (!res.ok) return;
 
     showToast(t('passkeys.autoCreated'));  // passive notification AFTER success
   } catch {
