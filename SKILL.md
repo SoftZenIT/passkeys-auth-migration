@@ -265,10 +265,25 @@ find . \( -name "*.prisma" -o -name "*.entity.ts" -o -name "*.model.py" \
 | **Frontend-only**  | No backend found                                      | Stop — ask questions first                                                                                                                             |
 | **Full-stack**     | Both found in same working dir                        | Backend plan, then frontend                                                                                                                            |
 | **Monorepo**       | Multiple `package.json` in `apps/*/` or `packages/*/` | Identify each sub-app; treat each as its own Backend-only or Frontend-only project; ask the user which sub-app(s) to target before generating any plan |
-| **Separate repos** | User confirms split repos                             | Ask for backend context                                                                                                                                |
+| **Separate repos** | User confirms split repos                             | Stop — ask for backend context first (same gate as Frontend-only)                                                                                      |
 
-**If frontend-only: stop immediately.** Do not generate any plan. Ask the user
-to fill in this backend context template:
+**If frontend-only OR separate repos: stop immediately.** Do not generate any
+plan — not a backend plan, not a frontend plan, and no code — until the user
+has filled in the backend context template below. These two modes share one
+gate: the backend existing *somewhere else* is precisely why you need its
+details before designing anything against it.
+
+A backend you cannot see is not a backend you may assume. Guessing its
+framework, auth scheme, or endpoint shapes produces a plan that looks complete
+and silently targets an API that does not exist — the most expensive failure
+mode in this whole skill, because it is only discovered during integration.
+
+**"I can't ask the user interactively" is not a reason to proceed on
+assumptions — it is a reason to stop and output the template.** Emitting the
+filled-in template as your entire response *is* the correct, complete answer
+here; a plan built on invented backend details is not a more helpful one.
+
+Ask the user to fill in this backend context template:
 
 ```
 BACKEND CONTEXT (required for frontend-only passkey integration)
