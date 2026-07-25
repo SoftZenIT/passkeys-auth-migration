@@ -47,8 +47,12 @@ Classify the user's request before Phase 0:
   `startRegistration` is imported in frontend code. Resume from the first phase
   whose signals are absent. Do not regenerate plans or code for phases that pass
   their signal checks.
-- **Frontend-only integration** — follow Phase 0, then stop and collect the
-  backend context template before generating any frontend plan.
+- **Frontend-only integration, or a backend living in a separate repo/service**
+  — follow Phase 0; if the backend's framework, database, and auth mechanism
+  are not already known (from files or from the user's own description), stop
+  and collect the backend context template before generating any plan. If the
+  user already stated those details, proceed — see "Classify the project mode"
+  below for the exact condition.
 - **Troubleshooting an existing passkey flow** — load
   `references/troubleshooting.md` first and answer with a targeted diagnosis.
   For Conditional UI/autofill failures, check `autocomplete="username webauthn"`,
@@ -259,34 +263,50 @@ find . \( -name "*.prisma" -o -name "*.entity.ts" -o -name "*.model.py" \
 
 ### Classify the project mode
 
-| Mode               | Condition                                             | Action                                                                                                                                                 |
-| ------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Backend-only**   | No frontend framework found                           | Backend plan only                                                                                                                                      |
-| **Frontend-only**  | No backend found                                      | Stop — ask questions first                                                                                                                             |
-| **Full-stack**     | Both found in same working dir                        | Backend plan, then frontend                                                                                                                            |
-| **Monorepo**       | Multiple `package.json` in `apps/*/` or `packages/*/` | Identify each sub-app; treat each as its own Backend-only or Frontend-only project; ask the user which sub-app(s) to target before generating any plan |
-| **Separate repos** | User confirms split repos                             | Stop — ask for backend context first (same gate as Frontend-only)                                                                                      |
+**The gate that actually matters is not "are the repos physically split" —
+it's "do you know the backend's framework, database, and auth mechanism?"**
+That's true whether the backend is invisible because it's a separate repo, a
+separate service, or simply not built yet. A user who states those details in
+their own message has answered the question just as validly as a file scan
+would; a user who only names a repo without those details has not.
 
-**If frontend-only OR separate repos: stop immediately.** Do not generate any
-plan — not a backend plan, not a frontend plan, and no code — until the user
-has filled in the backend context template below. These two modes share one
-gate: the backend existing *somewhere else* is precisely why you need its
-details before designing anything against it.
+| Mode              | Condition                                                                                                              | Action                                                                                                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Backend-only**  | Backend framework, database, and auth mechanism are known — found in the working dir, OR already stated by the user, even if the code itself lives in a separate repo/service | Backend plan only, using what's known. If the frontend lives elsewhere, note that in the plan and proceed anyway — a separate frontend repo is a deployment detail, not a reason to withhold a backend plan you have enough information to write |
+| **Frontend-only** | A frontend is found in the working dir, and the backend's framework/database/auth are unknown — not found here, not stated by the user | Stop — ask questions first                                                                                                                             |
+| **Full-stack**    | Both backend and frontend found in the same working dir                                                                   | Backend plan, then frontend                                                                                                                            |
+| **Monorepo**      | Multiple `package.json` in `apps/*/` or `packages/*/`                                                                      | Identify each sub-app; treat each as its own Backend-only or Frontend-only project; ask the user which sub-app(s) to target before generating any plan |
 
-A backend you cannot see is not a backend you may assume. Guessing its
-framework, auth scheme, or endpoint shapes produces a plan that looks complete
-and silently targets an API that does not exist — the most expensive failure
-mode in this whole skill, because it is only discovered during integration.
+**"Separate repos" is not its own mode** — it describes *where* code lives,
+never *whether* to stop. A request can mention split repos and still resolve
+to Backend-only (backend details given in prose), or to Frontend-only (backend
+details genuinely unknown). Judge by the condition column above, not by
+whether the word "separate" appears in the request.
+
+**If the backend's details are unknown: stop immediately.** Do not generate
+any plan — not a backend plan, not a frontend plan, and no code — until the
+user has filled in the backend context template below.
+
+A backend you cannot see AND cannot infer from the user's own words is not a
+backend you may assume. Guessing its framework, auth scheme, or endpoint
+shapes produces a plan that looks complete and silently targets an API that
+does not exist — the most expensive failure mode in this whole skill, because
+it is only discovered during integration. This is different from a case where
+the user already told you the framework, database, and auth mechanism in the
+same message — there is nothing left to assume in that case, so there is
+nothing to stop for.
 
 **"I can't ask the user interactively" is not a reason to proceed on
 assumptions — it is a reason to stop and output the template.** Emitting the
 filled-in template as your entire response *is* the correct, complete answer
-here; a plan built on invented backend details is not a more helpful one.
+when the backend is genuinely unknown; a plan built on invented backend
+details is not a more helpful one.
 
 Ask the user to fill in this backend context template:
 
 ```
-BACKEND CONTEXT (required for frontend-only passkey integration)
+BACKEND CONTEXT (required when the backend's framework, database, or auth
+mechanism are not yet known)
 ================================================================
 Backend framework:   [ e.g. NestJS, Django, Spring Boot, Laravel, Go, FastAPI ]
 Database:            [ e.g. PostgreSQL, MySQL, MongoDB, SQLite ]

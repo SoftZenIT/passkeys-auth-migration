@@ -82,22 +82,72 @@ after:
   proceeding on assumptions"* and produced a full backend plan, frontend
   plan, and code against a backend they had invented. This ambiguity was
   **pre-existing since 1.0.0** — the classification table was untouched by
-  1.2.0's diff — only exposed by broader benchmark coverage. `Separate repos`
-  now shares the same stop gate as `Frontend-only`, with the reasoning stated
-  and the "can't ask interactively" rationalization explicitly closed.
+  1.2.0's diff — only exposed by broader benchmark coverage.
+  An initial fix (making `Separate repos` share `Frontend-only`'s stop gate
+  unconditionally) turned out to directly contradict the pre-existing
+  `Backend-only` row for the common case of "backend fully described in the
+  same message, frontend in a separate repo" — a second, self-inflicted
+  regression caught by a follow-up review, not by the benchmark. The real
+  disambiguator was never "are the repos physically split" but **"are the
+  backend's framework, database, and auth mechanism known — from a file scan
+  or from the user's own words?"** If yes, write the backend plan regardless
+  of where the frontend lives; if no, stop and collect it. `Separate repos` is
+  no longer treated as its own mode.
 - **Also corrected while investigating the toolchain's Firefox-currency
   evals:** the skill claimed Conditional UI autofill was "not supported in
   Firefox as of 2026" in three places. This was wrong, not merely stale —
   MDN browser-compat-data confirms Firefox added conditional mediation in
   **119** (broadly shipped in 122, January 2024). Corrected with the real
-  caveats (needs Windows 11/macOS underneath; Firefox on Android lagged).
+  caveats (needs Windows 11/macOS underneath; Firefox on Android lagged). A
+  structural check now guards against this specific claim regressing.
 - `CONTRIBUTING.md` split out of the README with the eval-first workflow and
   the toolchain instructions this fix was validated against.
 - The "Gotchas" block (loaded on every activation) regrouped into 5 themed
   sections and tightened 149→114 lines / 1435→920 words (−36%); stack-specific
   entries compacted to symptom checklists since full fixes already live in
-  the Phase 1 references. SKILL.md ends at 819 lines — below the pre-1.2.0
-  baseline of 821, despite everything 1.2.0 added.
+  the Phase 1 references. SKILL.md ends this release at 854 lines — above the
+  pre-1.2.0 baseline of 821, because correctly resolving the routing
+  contradiction above needed real explanatory prose, not just a one-line
+  patch. The Gotchas trim alone remains a net reduction; the routing fix
+  spent part of that budget on correctness.
+
+### Fixed (second pass — code-review findings, not benchmark-caught)
+
+An xhigh multi-lens code review (correctness, completeness, security,
+feature-soundness, cross-file consistency, agent-usability; 2 independent
+skeptics per finding) on the state above found 12 further issues, 10 confirmed
+and 1 plausible after adversarial verification. Two were self-inflicted by the
+very fixes described above:
+
+- The `requireUserPresence: false` conditional-create fix read a `source`
+  field that the example `RegisterVerifyDto` never declared — NestJS's
+  `whitelist: true` silently stripped it, so the gate always took the
+  "user-initiated" branch and every genuine auto-upgrade was rejected with no
+  visible error. The DTO now declares `source`.
+- The `Separate repos` routing fix (above) is itself a fix for a contradiction
+  the first attempt at that fix introduced.
+- `toBase64url()` used `btoa()` directly on a UTF-8 string, silently
+  mis-encoding Latin-1 characters and throwing on real multi-byte UTF-8;
+  now encodes via `TextEncoder` first.
+- The fire-and-forget `signalCurrentUserDetails` call was wrapped in a
+  try/catch that can never catch an unawaited promise's rejection; now uses
+  `.catch()` directly on the promise.
+- The new Immediate UI Mode example lacked the `response.ok` check the same
+  release added to conditional-create, reintroducing the identical bug class
+  in a different function; and its conditional-UI re-arm only ran on the
+  `NotAllowedError` branch, leaving autofill dead after any other failure —
+  both fixed together.
+- `daysSince(user.lastAutoUpgradeAt)` was called outside its function's
+  try/catch on a value that needs explicit null-handling; now guarded and
+  moved inside.
+- Three near-identical `getClientCapabilities()` capability-check functions
+  deduplicated into one shared helper.
+- The eval corpus (`run-evals.mjs`) was missing two files with new v1.2.0
+  content (`ux-guidelines.md`, `messaging-guidelines.md`) — a future deletion
+  there would have gone undetected.
+- `CONTRIBUTING.md`'s frontmatter-length rule said "the whole frontmatter"
+  when it means the `description` field specifically (1011 vs 1413 chars,
+  respectively) — reworded to name the field.
 
 ## [1.1.0] — 2026-05-10
 

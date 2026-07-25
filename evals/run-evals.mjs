@@ -50,7 +50,7 @@ async function validateSkillRouting(corpus) {
     'general passkey security/comparison explainers',
     'Troubleshooting an existing passkey flow',
     'Testing or CI for passkey flows',
-    'BACKEND CONTEXT (required for frontend-only passkey integration)',
+    "BACKEND CONTEXT (required when the backend's framework, database, or auth",
   ];
 
   for (const pattern of routingPatterns) {
@@ -103,6 +103,16 @@ function validateV120Features(corpus) {
   }
 }
 
+function validateCorrectnessFixes(corpus) {
+  // Guards a documented FALSE claim (CHANGELOG "Fixed", post-release) from
+  // silently regressing — distinct from validateV120Features, which guards
+  // new feature coverage rather than a factual correction.
+  check('Firefox Conditional UI correction cites Firefox 119',
+    corpus.includes(normalizeText('Firefox 119')));
+  check('stale "not supported in Firefox" claim has not returned',
+    !corpus.includes(normalizeText('not supported in Firefox')));
+}
+
 async function main() {
   const referenceFiles = [
     'SKILL.md',
@@ -115,6 +125,8 @@ async function main() {
     'references/troubleshooting.md',
     'references/rollout-guide.md',
     'references/advanced-features.md',
+    'references/ux-guidelines.md',
+    'references/messaging-guidelines.md',
     'assets/env-template.md',
   ];
 
@@ -127,6 +139,7 @@ async function main() {
   await validateEvalsJson();
   await validateSkillRouting(corpus);
   validateV120Features(corpus);
+  validateCorrectnessFixes(corpus);
 
   const failed = checks.filter((item) => !item.ok);
   for (const item of checks) {
