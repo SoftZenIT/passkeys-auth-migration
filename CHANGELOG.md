@@ -65,6 +65,40 @@ From an adversarially-verified review (6 lenses, 2 skeptics per finding —
   vault-unlock now sets `userVerification: 'required'`; NestJS
   `DELETE :credentialId` renamed to `:id` to match every other layer.
 
+### Fixed (post-release, benchmark-driven)
+
+The full skill-creator toolchain (19 evals, same-batch v1.2.0 vs v1.1.0,
+subagent grading) scored **v1.2.0 at 99.1% (222/225) vs v1.1.0 at 88.8%
+(204/225)**, stddev tightening from ±18% to ±3%. It also surfaced one real,
+reproducible regression, confirmed at 0/3 across reps before the fix and 5/5
+after:
+
+- **Separate-repos projects could get a plan built on an invented backend.**
+  The Phase 0 classification table gave `Frontend-only` an explicit
+  "stop immediately, do not generate any plan" but gave `Separate repos` only
+  "ask for backend context" — no stop language. A request that is genuinely
+  both (a frontend repo whose backend runs elsewhere) fell through the weaker
+  row: agents rationalized *"I cannot ask you interactively, so I am
+  proceeding on assumptions"* and produced a full backend plan, frontend
+  plan, and code against a backend they had invented. This ambiguity was
+  **pre-existing since 1.0.0** — the classification table was untouched by
+  1.2.0's diff — only exposed by broader benchmark coverage. `Separate repos`
+  now shares the same stop gate as `Frontend-only`, with the reasoning stated
+  and the "can't ask interactively" rationalization explicitly closed.
+- **Also corrected while investigating the toolchain's Firefox-currency
+  evals:** the skill claimed Conditional UI autofill was "not supported in
+  Firefox as of 2026" in three places. This was wrong, not merely stale —
+  MDN browser-compat-data confirms Firefox added conditional mediation in
+  **119** (broadly shipped in 122, January 2024). Corrected with the real
+  caveats (needs Windows 11/macOS underneath; Firefox on Android lagged).
+- `CONTRIBUTING.md` split out of the README with the eval-first workflow and
+  the toolchain instructions this fix was validated against.
+- The "Gotchas" block (loaded on every activation) regrouped into 5 themed
+  sections and tightened 149→114 lines / 1435→920 words (−36%); stack-specific
+  entries compacted to symptom checklists since full fixes already live in
+  the Phase 1 references. SKILL.md ends at 819 lines — below the pre-1.2.0
+  baseline of 821, despite everything 1.2.0 added.
+
 ## [1.1.0] — 2026-05-10
 
 ### Premium Improvements
