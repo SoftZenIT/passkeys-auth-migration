@@ -33,19 +33,24 @@ export const isPlatformAuthAvailable = async (): Promise<boolean> => {
   return PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
 };
 
-// Is Conditional UI (autofill passkeys) supported? — needed for sign-in page
-// Two APIs exist; prefer getClientCapabilities() in newer browsers.
-export const isConditionalUIAvailable = async (): Promise<boolean> => {
+// Shared capability check (Chrome/Edge 133+, Firefox 135+, Safari 17.4+).
+// Returns null — not false — when the modern API is unavailable or throws,
+// so callers can tell "unsupported" apart from "add a legacy fallback here".
+const getClientCapability = async (name: string): Promise<boolean | null> => {
   if (!isWebAuthnSupported()) return false;
-  // Modern API (Chrome/Edge 133+, Firefox 135+, Safari 17.4+): getClientCapabilities()
-  if (typeof PublicKeyCredential.getClientCapabilities === 'function') {
-    try {
-      const caps = await PublicKeyCredential.getClientCapabilities();
-      return caps.conditionalGet === true;
-    } catch {
-      // fall through to legacy API
-    }
+  if (typeof PublicKeyCredential.getClientCapabilities !== 'function') return null;
+  try {
+    const caps = await PublicKeyCredential.getClientCapabilities();
+    return caps[name] === true;
+  } catch {
+    return null;
   }
+};
+
+// Is Conditional UI (autofill passkeys) supported? — needed for sign-in page
+export const isConditionalUIAvailable = async (): Promise<boolean> => {
+  const modern = await getClientCapability('conditionalGet');
+  if (modern !== null) return modern;
   // Legacy API (Chrome 108+, Safari 16+, Firefox 119+): isConditionalMediationAvailable()
   return typeof PublicKeyCredential.isConditionalMediationAvailable === 'function' &&
     PublicKeyCredential.isConditionalMediationAvailable();
@@ -53,24 +58,12 @@ export const isConditionalUIAvailable = async (): Promise<boolean> => {
 
 // Can the browser silently upgrade a password sign-in to a passkey?
 // (conditional create — Safari 18+, Chrome 136+ desktop / 142+ Android)
-export const isConditionalCreateAvailable = async (): Promise<boolean> => {
-  if (!isWebAuthnSupported()) return false;
-  if (typeof PublicKeyCredential.getClientCapabilities !== 'function') return false;
-  try {
-    const caps = await PublicKeyCredential.getClientCapabilities();
-    return caps.conditionalCreate === true;
-  } catch { return false; }
-};
+export const isConditionalCreateAvailable = async (): Promise<boolean> =>
+  (await getClientCapability('conditionalCreate')) === true;
 
 // Can the browser run an immediate-mode get()? (smart sign-in button, Chrome 149+)
-export const isImmediateGetAvailable = async (): Promise<boolean> => {
-  if (!isWebAuthnSupported()) return false;
-  if (typeof PublicKeyCredential.getClientCapabilities !== 'function') return false;
-  try {
-    const caps = await PublicKeyCredential.getClientCapabilities();
-    return caps.immediateGet === true;
-  } catch { return false; }
-};
+export const isImmediateGetAvailable = async (): Promise<boolean> =>
+  (await getClientCapability('immediateGet')) === true;
 ```
 
 Rules:
@@ -208,8 +201,11 @@ const signInSmart = async (): Promise<void> => {
   conditionalAbortController?.abort();
 
   try {
-    const optionsJSON = await fetch('/auth/passkey/authenticate/challenge', { method: 'POST' })
-      .then(r => r.json());
+    const optionsResp = await fetch('/auth/passkey/authenticate/challenge', { method: 'POST' });
+    // fetch() does NOT throw on 4xx/5xx — check explicitly, or a server error
+    // gets parsed as if it were valid ceremony options.
+    if (!optionsResp.ok) throw new Error(`Challenge request failed: ${optionsResp.status}`);
+    const optionsJSON = await optionsResp.json();
 
     const credential = await navigator.credentials.get({
       publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(optionsJSON),
@@ -218,14 +214,14 @@ const signInSmart = async (): Promise<void> => {
 
     await verifyOnServer((credential as PublicKeyCredential).toJSON());
   } catch (err: any) {
-    if (err.name === 'NotAllowedError') {
-      // No local passkey → reveal the password form and re-arm conditional UI
-      // on its username field (we aborted it above), so a phone-synced passkey
-      // still surfaces in the autofill dropdown. No modal, no error.
-      showLoginForm();       // its onMounted/useEffect calls initConditionalAuth()
-      return;
+    // Every failure path re-arms conditional UI (we aborted it above) by
+    // revealing the login form — not just the NotAllowedError branch, or a
+    // network/server error leaves autofill permanently disarmed until reload.
+    if (err.name !== 'NotAllowedError') {
+      showError('Passkey sign-in failed. Try another method.');
     }
-    showError('Passkey sign-in failed. Try another method.');
+    // No local passkey → silent, no error shown at all (by design).
+    showLoginForm();       // its onMounted/useEffect calls initConditionalAuth()
   }
 };
 ```
@@ -704,14 +700,16 @@ export async function attemptPasskeyUpgrade(
   // isConditionalCreateAvailable() from §Feature Detection (caps.conditionalCreate)
   if (!(await isConditionalCreateAvailable())) return;
 
-  // Trigger policy: attempt only when it can plausibly succeed.
-  // (daysSince(null) must return Infinity so the first-ever attempt isn't skipped.)
-  if (user.passkeyCount > 0) return;                 // already upgraded
-  if (daysSince(user.lastAutoUpgradeAt) < 7) return; // weekly cooldown
-  // lastAutoUpgradeAt is set server-side on every attempt, success or
-  // not — so a declined upgrade isn't retried on every single login.
-
   try {
+    // Trigger policy: attempt only when it can plausibly succeed.
+    if (user.passkeyCount > 0) return;    // already upgraded
+    // Explicit null check — never rely on daysSince(null) returning a
+    // particular sentinel. The first-ever attempt (no prior timestamp) must
+    // never be skipped, so short-circuit before calling it at all.
+    if (user.lastAutoUpgradeAt && daysSince(user.lastAutoUpgradeAt) < 7) return; // weekly cooldown
+    // lastAutoUpgradeAt is set server-side on every attempt, success or
+    // not — so a declined upgrade isn't retried on every single login.
+
     const options = await fetch('/auth/passkey/register/challenge', {
       method: 'POST',
       headers: { Authorization: `Bearer ${authToken}` },

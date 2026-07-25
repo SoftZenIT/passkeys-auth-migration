@@ -378,9 +378,15 @@ Keep passkey providers in sync with your server's credential state:
 const rpId = process.env.RP_ID!;
 
 // userId in the Signal API must be base64url-encoded to match the userHandle
-// the authenticator stored. If passkeyUserId is a UTF-8 string in your DB:
-const toBase64url = (s: string) =>
-  btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+// the authenticator stored. btoa() alone is NOT safe here — it operates on
+// UTF-16 code units, so it silently mis-encodes Latin-1 characters (é, ñ) and
+// throws on real multi-byte UTF-8 (emoji, CJK). Encode via UTF-8 bytes first:
+const toBase64url = (s: string) => {
+  const bytes = new TextEncoder().encode(s);
+  let binary = '';
+  bytes.forEach((b) => { binary += String.fromCharCode(b); });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+};
 
 // After 404 (credential not found during authentication):
 if (response.status === 404 && PublicKeyCredential.signalUnknownCredential) {
@@ -404,16 +410,17 @@ if (PublicKeyCredential.signalAllAcceptedCredentials) {
 // After the user changes their username or display name on your server,
 // sync the provider's copy on their next visit (browser-side, RP origin):
 if (PublicKeyCredential.signalCurrentUserDetails) {
-  try {
-    // Fire-and-forget: Safari 26 has a known WebKit bug (#298951) where this
-    // promise may never resolve — never await-block UI or sign-in flow on it.
-    void PublicKeyCredential.signalCurrentUserDetails({
-      rpId,
-      userId: toBase64url(user.passkeyUserId),  // same userHandle encoding
-      name: user.username,                      // what the passkey picker lists
-      displayName: user.displayName,
-    });
-  } catch { /* hygiene call — non-critical, never surface to the user */ }
+  // Fire-and-forget: Safari 26 has a known WebKit bug (#298951) where this
+  // promise may never resolve — never await-block UI or sign-in flow on it.
+  // A surrounding try/catch CANNOT catch this — the call isn't awaited, so
+  // any rejection surfaces after the try block has already returned, as an
+  // unhandled promise rejection. Attach .catch() directly on the promise:
+  PublicKeyCredential.signalCurrentUserDetails({
+    rpId,
+    userId: toBase64url(user.passkeyUserId),  // same userHandle encoding
+    name: user.username,                      // what the passkey picker lists
+    displayName: user.displayName,
+  }).catch(() => { /* hygiene call — non-critical, never surface to the user */ });
 }
 ```
 

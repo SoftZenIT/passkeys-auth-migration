@@ -125,12 +125,27 @@ is minimal — reuse the existing registration ceremony:
   the resulting credential is a normal passkey. Other libraries expose the same
   switch (e.g. py_webauthn `require_user_presence=False`); if yours does not,
   it cannot verify conditional-create responses yet.
-- **Tag the source for metrics**: accept an optional `source` field on the
-  verify request (`"conditional-create"` vs `"user-initiated"`) and store it —
-  adoption dashboards need to distinguish silent upgrades from manual creates.
-  It also drives the `requireUserPresence` switch above, so it must be part of
-  the verify DTO (see §NestJS Common Pitfalls — a `forbidNonWhitelisted`
-  ValidationPipe rejects any field the DTO does not declare).
+- **Tag the source for metrics — and declare it on the DTO.** Accept an
+  optional `source` field on the verify request (`"conditional-create"` vs
+  `"user-initiated"`) so adoption dashboards can distinguish silent upgrades
+  from manual creates. It also drives the `requireUserPresence` switch above —
+  which means **the field must actually reach the handler**. A NestJS
+  `ValidationPipe` with `whitelist: true` strips any property the DTO doesn't
+  declare, regardless of `forbidNonWhitelisted`; if `RegisterVerifyDto` omits
+  `source`, `body.source` is silently always `undefined`,
+  `requireUserPresence` always evaluates to `true`, and every genuine
+  conditional-create attempt is rejected with no visible error (the frontend's
+  catch{} treats it as ordinary silent failure). Add it to the DTO:
+  ```typescript
+  // dto/register-verify.dto.ts — add alongside the SWA v13+ fields:
+  @IsOptional() @IsIn(['conditional-create', 'user-initiated']) source?: string;
+  ```
+  Never trust `source` as a security boundary by itself — it only *widens*
+  what verification will accept (skips the UP check); it does not narrow
+  anything. The actual security guarantee still comes from the ceremony
+  itself: a conditional-create response can only exist if the browser's own
+  password manager decided to run it (see the browser-support and
+  time-window constraints above) — `source` is metrics and gating, not proof.
 
 ---
 
@@ -445,7 +460,7 @@ misleading "cancelled" message on the frontend.
 
 ```typescript
 // dto/register-verify.dto.ts
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsIn } from 'class-validator';
 
 export class RegisterVerifyDto {
   @IsString() id: string;
@@ -464,6 +479,10 @@ export class RegisterVerifyDto {
 
   @IsOptional() clientExtensionResults?: Record<string, unknown>;
   @IsOptional() authenticatorAttachment?: string;
+  // Drives requireUserPresence in §Conditional create below. `whitelist: true`
+  // strips any field not declared here — omitting this makes that section's
+  // switch silently always take the "user-initiated" branch.
+  @IsOptional() @IsIn(['conditional-create', 'user-initiated']) source?: string;
 }
 
 // In passkey.controller.ts — override the global pipe for this endpoint only:

@@ -67,7 +67,10 @@ Two things worth knowing before you interpret a benchmark:
 The `description` in `SKILL.md` frontmatter decides whether the skill activates
 at all, so it is the highest-leverage and highest-risk field in the repo.
 
-- Keep the whole frontmatter under **1024 characters**.
+- Keep the `description` field itself under **1024 characters** (this is the
+  agentskills.io spec limit on `description`, not on the frontmatter block as
+  a whole — `name`, `metadata`, and `compatibility` are separate and add to
+  the block's total size without counting against this limit).
 - Describe **when to use** the skill, never summarise its workflow — a
   description that explains the process invites agents to follow the summary
   instead of reading the skill.
