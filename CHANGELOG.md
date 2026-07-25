@@ -36,6 +36,35 @@ Aligns the skill with WebAuthn Level 3 (W3C Candidate Recommendation,
 - **Evals:** 6 new evals + v1.2.0-tagged assertions on evals 1 and 12;
   `run-evals.mjs` gains a v1.2.0 feature-coverage pattern group (127 checks)
 
+### Fixed
+
+From an adversarially-verified review (6 lenses, 2 skeptics per finding —
+11 findings, 0 refuted):
+
+- **Passkey sign-in was broken in the flagship NestJS example** (pre-existing,
+  since 1.0.0). Registration stored `credentialId: Buffer.from(credential.id)`
+  — the UTF-8 bytes of the base64url string — while the authentication lookup
+  decodes `Buffer.from(rawId, 'base64url')`. The two never matched, so every
+  passkey sign-in returned 401 while registration appeared to succeed. **If you
+  built on the NestJS example before 1.2.0, re-check this line**; existing rows
+  were stored in the wrong encoding and must be re-registered or migrated.
+- **Conditional create rejected every auto-created passkey.** The guidance said
+  verification was unchanged; in fact the ceremony has no user gesture, so the
+  UP flag is unset and SimpleWebAuthn's `requireUserPresence` (default `true`)
+  throws. Now documents `requireUserPresence: false`, scoped to that path only.
+- **Immediate UI mode never fired** when conditional UI was armed — the missing
+  `AbortController` abort made the ceremony fail with `NotAllowedError`,
+  indistinguishable from "no credential available".
+- **Cross-origin iframe setup left WebAuthn blocked**: the `Permissions-Policy`
+  header was shown on the embedded document naming the embedder; the parent
+  must send it naming the embedded origin, alongside the `allow` attribute.
+- Conditional create announced success without checking `response.ok`
+  (`fetch` does not throw on 4xx/5xx); Go handlers returned `{publicKey: …}`
+  wrapped options SimpleWebAuthn cannot parse; Django (session-based) vs the
+  Bearer-token frontend examples now carry an explicit pick-one note; PRF
+  vault-unlock now sets `userVerification: 'required'`; NestJS
+  `DELETE :credentialId` renamed to `:id` to match every other layer.
+
 ## [1.1.0] — 2026-05-10
 
 ### Premium Improvements
